@@ -2,10 +2,13 @@ import AbandonedCartRepository from './abandoned-cart-repository.js';
 
 class AbandonedCartService {
   async registerCartCancellation(data) {
+    console.log('data', data);
+
     if (
       !data.sessionId ||
       !data.cancellationReason ||
       !data.products ||
+      !data.cancellationCode ||
       data.totalAmount === undefined
     ) {
       throw new Error(
@@ -22,6 +25,7 @@ class AbandonedCartService {
       userId: data.userId || null,
       sessionId: data.sessionId,
       cancellationReason: data.cancellationReason,
+      cancellationCode: data.cancellationCode,
       totalAmount: data.totalAmount,
       totalItems: totalItems,
       products: data.products,

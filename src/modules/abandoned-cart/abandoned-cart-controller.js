@@ -4,6 +4,8 @@ class AbandonedCartController {
   async register(req, res) {
     try {
       const cartData = req.body;
+      console.log('cart', cartData);
+
       const registeredCart =
         await AbandonedCartService.registerCartCancellation(cartData);
       return res.status(201).json(registeredCart);

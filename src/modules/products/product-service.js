@@ -2,6 +2,26 @@ import supplierService from '../supplier/supplier-service.js';
 import productRepository from './product-repository.js';
 import productVariantRepository from '../product-variant/product-variant-repository.js';
 
+const unmaskCurrency = (value) => {
+  if (typeof value === 'number' || !value) {
+    return value;
+  }
+  const onlyDigits = value.replace(/[^\d]/g, '');
+  const numericValue = parseFloat(onlyDigits) / 100;
+  return isNaN(numericValue) ? 0 : numericValue;
+};
+
+const parseJSONIfNeeded = (data) => {
+  if (typeof data === 'string') {
+    try {
+      return JSON.parse(data);
+    } catch (e) {
+      throw new Error('Dados JSON inválidos.');
+    }
+  }
+  return data;
+};
+
 const getProductById = async (id) => {
   const product = await productRepository.findById(id);
 
@@ -9,7 +29,9 @@ const getProductById = async (id) => {
     throw new Error('Produto não encontrado ou inativo.');
   }
 
-  const variants = await productVariantRepository.findVariantsByProductId(id);
+  const variants = await productVariantRepository.findVariantsByProductIds([
+    id,
+  ]);
 
   return {
     ...product,
@@ -40,15 +62,15 @@ const getAllProducts = async () => {
 };
 
 const createProduct = async (productData, imageFiles) => {
-  const { supplier_id, ...parentProductData } = productData;
+  const {
+    supplier_id,
+    variants: variantsJSON,
+    ...parentProductData
+  } = productData;
 
-  let variants = productData.variants;
-
-  try {
-    variants = JSON.parse(productData.variants);
-  } catch (e) {
-    console.error('Erro ao parsear variantes:', e);
-    throw new Error('Dados de variação inválidos (Não é um JSON válido).');
+  let variants = parseJSONIfNeeded(variantsJSON);
+  if (!variants) {
+    throw new Error('Dados de variação inválidos.');
   }
 
   try {
@@ -66,17 +88,20 @@ const createProduct = async (productData, imageFiles) => {
     variants.map(async (variant) => {
       const { buy_price, sale_price, ...variantDetails } = variant;
 
+      const numericBuyPrice = unmaskCurrency(buy_price);
+      const numericSalePrice = unmaskCurrency(sale_price);
+
       const initialPriceLog = {
-        buyPrice: buy_price,
-        salePrice: sale_price,
+        buyPrice: numericBuyPrice,
+        salePrice: numericSalePrice,
         changedAt: new Date(),
       };
 
       const variantToCreate = {
         ...variantDetails,
         product: newProduct._id,
-        buy_price,
-        sale_price,
+        buy_price: numericBuyPrice,
+        sale_price: numericSalePrice,
         price_history: [initialPriceLog],
       };
 
@@ -111,4 +136,109 @@ const updatePrices = async (variantId, newBuyPrice, newSalePrice) => {
   return updatedVariant;
 };
 
-export { createProduct, updatePrices, getAllProducts, getProductById };
+const updateProduct = async (id, updateData, imageFiles) => {
+  const {
+    variants: variantsJSON,
+    existing_images: existingImagesJSON,
+    ...parentUpdateData
+  } = updateData;
+
+  const product = await productRepository.findById(id);
+
+  if (!product || product.is_available === false) {
+    throw new Error('Produto não encontrado ou inativo.');
+  }
+
+  let finalImagesList = [];
+  if (existingImagesJSON) {
+    finalImagesList = parseJSONIfNeeded(existingImagesJSON);
+  } else {
+    finalImagesList = product.images || [];
+  }
+
+  if (imageFiles && imageFiles.length > 0) {
+    finalImagesList = finalImagesList.concat(imageFiles);
+  }
+
+  parentUpdateData.images = finalImagesList;
+
+  if (parentUpdateData.supplier_id) {
+    parentUpdateData.supplier = parentUpdateData.supplier_id;
+    delete parentUpdateData.supplier_id;
+  }
+
+  const updatedProduct = await productRepository.update(id, parentUpdateData);
+
+  let variants = [];
+  if (variantsJSON) {
+    variants = parseJSONIfNeeded(variantsJSON);
+    if (variants === null) {
+      throw new Error('Dados de variação inválidos.');
+    }
+  }
+
+  const updatedVariants = await Promise.all(
+    variants.map(async (variant) => {
+      const {
+        _id: variantId,
+        buy_price,
+        sale_price,
+        ...variantDetails
+      } = variant;
+
+      const numericBuyPrice = unmaskCurrency(buy_price);
+      const numericSalePrice = unmaskCurrency(sale_price);
+
+      if (variantId) {
+        return await productVariantRepository.updateVariant(variantId, {
+          ...variantDetails,
+          buy_price: numericBuyPrice,
+          sale_price: numericSalePrice,
+        });
+      } else {
+        const initialPriceLog = {
+          buyPrice: numericBuyPrice,
+          salePrice: numericSalePrice,
+          changedAt: new Date(),
+        };
+        return await productVariantRepository.createVariant({
+          ...variantDetails,
+          product: id,
+          buy_price: numericBuyPrice,
+          sale_price: numericSalePrice,
+          price_history: [initialPriceLog],
+        });
+      }
+    })
+  );
+
+  const currentVariants =
+    await productVariantRepository.findVariantsByProductIds([id]);
+
+  const updatedVariantIds = updatedVariants.map((v) => v._id.toString());
+
+  const variantsToDelete = currentVariants.filter(
+    (v) => !updatedVariantIds.includes(v._id.toString())
+  );
+
+  if (variantsToDelete.length > 0) {
+    await Promise.all(
+      variantsToDelete.map((variant) =>
+        productVariantRepository.removeVariant(variant._id)
+      )
+    );
+  }
+
+  return {
+    ...updatedProduct,
+    variants: updatedVariants,
+  };
+};
+
+export {
+  createProduct,
+  updatePrices,
+  getAllProducts,
+  getProductById,
+  updateProduct,
+};

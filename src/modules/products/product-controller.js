@@ -8,7 +8,7 @@ const handleGetAllProducts = asyncHandler(async (req, res) => {
 
 const handleAddNewProduct = asyncHandler(async (req, res) => {
   const payload = req.body;
-  const imageFiles = req.files || [];
+  const imageFiles = req.body.images || [];
 
   if (!payload.supplier_id) {
     return res
@@ -17,11 +17,11 @@ const handleAddNewProduct = asyncHandler(async (req, res) => {
   }
 
   const imagesToSave = imageFiles.map((file) => ({
-    url: file.location,
+    url: file.url,
     key: file.key,
   }));
 
-  const newProduct = productService.createProduct(payload, imagesToSave);
+  const newProduct = await productService.createProduct(payload, imagesToSave);
   res.status(201).json(newProduct);
 });
 
@@ -31,4 +31,29 @@ const handleGetProductById = asyncHandler(async (req, res) => {
   res.json(product);
 });
 
-export { handleAddNewProduct, handleGetAllProducts, handleGetProductById };
+const handleUpdateProduct = asyncHandler(async (req, res) => {
+  const { id } = req.params;
+  const payload = req.body;
+  const imageFiles = req.body?.images || [];
+
+  console.log(req.body);
+
+  const imagesToSave = imageFiles.map((file) => ({
+    url: file.location || file.url,
+    key: file.key,
+  }));
+
+  const updatedProduct = await productService.updateProduct(
+    id,
+    payload,
+    imagesToSave
+  );
+  res.json(updatedProduct);
+});
+
+export {
+  handleAddNewProduct,
+  handleGetAllProducts,
+  handleGetProductById,
+  handleUpdateProduct,
+};

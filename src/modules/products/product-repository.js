@@ -32,26 +32,6 @@ const remove = async (id) => {
   return await Product.findByIdAndDelete(id);
 };
 
-const updateStockBatch = async (updates) => {
-  if (!updates || updates.length === 0) {
-    return;
-  }
-
-  const bulkOperations = updates.map((update) => {
-    const quantityChange =
-      update.operation === 'decrement' ? -update.quantity : update.quantity;
-
-    return {
-      updateOne: {
-        filter: { _id: update.variantId },
-        // $inc é usado para incrementar ou decrementar um campo
-        update: { $inc: { quantity: quantityChange } },
-      },
-    };
-  });
-  return await ProductVariant.bulkWrite(bulkOperations);
-};
-
 export default {
   create,
   findAll,

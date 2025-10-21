@@ -8,9 +8,4 @@ router.get(
   InstallmentController.getPaymentConditions.bind(InstallmentController)
 );
 
-router.put(
-  '/rules/:id',
-  InstallmentController.updateRule.bind(InstallmentController)
-);
-
 export default router;

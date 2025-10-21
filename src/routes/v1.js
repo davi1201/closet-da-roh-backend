@@ -6,6 +6,7 @@ import clientRoutes from '../modules/clients/client-router.js';
 import saleSettingRoutes from '../modules/sale-settings/sale-setting-routes.js';
 import installmentRoutes from '../modules/installment-rule/installment-rule-routes.js';
 import abandonedCartRoutes from '../modules/abandoned-cart/abandoned-cart-routes.js';
+import salesRoutes from '../modules/sales/sale-routes.js';
 
 const router = Router();
 
@@ -15,5 +16,6 @@ router.use('/clients', clientRoutes);
 router.use('/sale-settings', saleSettingRoutes);
 router.use('/installments', installmentRoutes);
 router.use('/abandoned-cart', abandonedCartRoutes);
+router.use('/sales', salesRoutes);
 
 export const v1Routes = router;

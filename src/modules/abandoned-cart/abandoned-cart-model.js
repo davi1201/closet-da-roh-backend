@@ -12,6 +12,19 @@ const AbandonedCartSchema = new mongoose.Schema({
     required: true,
     index: true,
   },
+  cancellationCode: {
+    type: String,
+    required: true,
+    enum: [
+      'HIGH_PRICE',
+      'INSTALLMENT_AMOUNT',
+      'HIGH_CARD_INTEREST',
+      'FOUND_BETTER_PRICE',
+      'PURCHASE_ABANDONED',
+      'OTHER',
+    ],
+    index: true,
+  },
   cancellationReason: {
     type: String,
     required: true,

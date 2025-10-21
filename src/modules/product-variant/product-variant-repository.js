@@ -11,8 +11,8 @@ const findVariantsByProductIds = async (productIds) => {
   }).lean();
 };
 
-const findVariantById = async (id) => {
-  return await ProductVariant.findById(id)
+const findVariantsByIds = async (ids) => {
+  return await ProductVariant.find({ _id: { $in: ids } })
     .populate({
       path: 'product',
       populate: { path: 'supplier' },
@@ -73,10 +73,45 @@ const updatePricesAndLogHistory = async (
   return updatedVariant;
 };
 
+const updateStockBatch = async (stockUpdates) => {
+  if (!stockUpdates || stockUpdates.length === 0) {
+    return;
+  }
+
+  const operations = stockUpdates.map((update) => ({
+    updateOne: {
+      filter: { _id: update.variantId },
+      // Usa $inc para decrementar ou incrementar o campo 'quantity' (estoque)
+      // Se a operação for 'decrement', o valor será negativo (-update.quantity)
+      // Se a operação for 'increment', o valor será positivo (+update.quantity)
+      update: {
+        $inc: {
+          quantity:
+            update.operation === 'decrement'
+              ? -update.quantity
+              : update.quantity,
+        },
+      },
+    },
+  }));
+
+  try {
+    // Executa as operações em lote
+    const result = await ProductVariant.bulkWrite(operations);
+    return result;
+  } catch (error) {
+    console.error('Erro durante a atualização de estoque em lote:', error);
+    throw new Error(
+      'Falha ao atualizar o estoque durante o processamento da venda.'
+    );
+  }
+};
+
 export default {
   createVariant,
   findVariantsByProductIds,
-  findVariantById,
+  findVariantsByIds,
+  updateStockBatch,
   updateVariant,
   removeVariant,
   updatePricesAndLogHistory,

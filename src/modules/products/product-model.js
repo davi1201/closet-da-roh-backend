@@ -4,6 +4,7 @@ const productSchema = new mongoose.Schema(
   {
     name: { type: String, required: true },
     description: { type: String },
+    code: { type: String, unique: true },
     category: { type: String },
     is_available: { type: Boolean, default: true },
     images: [
@@ -12,7 +13,6 @@ const productSchema = new mongoose.Schema(
         key: { type: String, required: true },
       },
     ],
-
     supplier: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Supplier',
