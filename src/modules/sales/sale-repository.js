@@ -19,10 +19,7 @@ class SaleRepository {
     const query = fulfillment_status
       ? { fulfillment_status: fulfillment_status }
       : {};
-    return await Sale.find(query)
-      .sort({ createdAt: -1 })
-      .populate('client')
-      .lean();
+    return await Sale.find().sort({ createdAt: -1 }).populate('client').lean();
   }
 
   async getSalesSummary() {

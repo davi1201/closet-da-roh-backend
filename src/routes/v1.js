@@ -7,6 +7,9 @@ import saleSettingRoutes from '../modules/sale-settings/sale-setting-routes.js';
 import installmentRoutes from '../modules/installment-rule/installment-rule-routes.js';
 import abandonedCartRoutes from '../modules/abandoned-cart/abandoned-cart-routes.js';
 import salesRoutes from '../modules/sales/sale-routes.js';
+import { appointmentRoutes as appointmentPublicRoutes } from '../modules/appointment/appointment-public-routes.js';
+import { appointmentRoutes as appointmentAdminRoutes } from '../modules/appointment/appointment-admin-routes.js';
+import availabilityRoutes from '../modules/availability/availability-routes.js';
 
 const router = Router();
 
@@ -17,5 +20,8 @@ router.use('/sale-settings', saleSettingRoutes);
 router.use('/installments', installmentRoutes);
 router.use('/abandoned-cart', abandonedCartRoutes);
 router.use('/sales', salesRoutes);
+router.use('/appointments/public', appointmentPublicRoutes);
+router.use('/appointments/admin', appointmentAdminRoutes);
+router.use('/availability', availabilityRoutes);
 
 export const v1Routes = router;

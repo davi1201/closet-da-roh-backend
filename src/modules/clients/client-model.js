@@ -1,4 +1,5 @@
 import mongoose from 'mongoose';
+
 const Schema = mongoose.Schema;
 
 const desiredProductSchema = new Schema(
@@ -26,13 +27,17 @@ const clientSchema = new Schema(
       type: String,
       required: [true, "The client's name is mandatory."],
       trim: true,
+      uppercase: true,
     },
 
     address: {
-      street: { type: String, trim: true },
-      city: { type: String, trim: true },
-      state: { type: String, trim: true },
-      zip_code: { type: String, trim: true },
+      street: { type: String, required: true, uppercase: true },
+      number: { type: String, required: true },
+      neighborhood: { type: String, required: true, uppercase: true },
+      city: { type: String, required: true, uppercase: true },
+      state: { type: String, required: true, length: 2, uppercase: true },
+      zipCode: { type: String, required: true },
+      details: { type: String }, // Ex: "Apto 101", "Casa dos fundos"
     },
 
     phoneNumber: {
