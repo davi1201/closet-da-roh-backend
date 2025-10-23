@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 
 import { connectDB } from './config/database.js';
 import { v1Routes } from './routes/v1.js';
-
+import './config/firebase-admin.js';
 // Inicializa o dotenv antes de usar variáveis de ambiente
 dotenv.config();
 
