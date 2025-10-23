@@ -7,7 +7,7 @@ router.post('/', ClientController.createClient);
 router.get('/', ClientController.listClients);
 router.get('/:id', ClientController.getClientById);
 router.put('/:id', ClientController.updateClient);
-
+router.get('/client-by-phone/:phone', ClientController.getClientByPhone);
 router.post('/:id/desired-product', ClientController.addDesiredProduct);
 router.delete('/:id/deactivate', ClientController.deactivateClient);
 

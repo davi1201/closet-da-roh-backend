@@ -1,10 +1,12 @@
-import mongoose from 'mongoose';
+import mongoose, { set } from 'mongoose';
+import { normalizeString, toTitleCase } from '../../utils/text-formatter.js';
 
 const ContactSchema = new mongoose.Schema(
   {
     phone: {
       type: String,
       trim: true,
+      set: normalizeString,
     },
     email: {
       type: String,
@@ -18,13 +20,14 @@ const ContactSchema = new mongoose.Schema(
     contact_person: {
       type: String,
       trim: true,
+      set: toTitleCase,
       required: [true, 'O nome da pessoa de contato é obrigatório.'],
     },
 
     address: {
-      street: { type: String, trim: true },
-      city: { type: String, trim: true },
-      state: { type: String, trim: true },
+      street: { type: String, trim: true, set: toTitleCase },
+      city: { type: String, trim: true, set: toTitleCase },
+      state: { type: String, trim: true, set: toTitleCase },
       zip_code: { type: String, trim: true },
     },
   },
@@ -38,6 +41,7 @@ const SupplierSchema = new mongoose.Schema(
       required: [true, 'O nome do fornecedor é obrigatório.'],
       trim: true,
       unique: true,
+      set: toTitleCase,
     },
 
     document_type: {
@@ -50,10 +54,12 @@ const SupplierSchema = new mongoose.Schema(
       unique: true,
       trim: true,
       sparse: true,
+      set: normalizeString,
     },
 
     contact: {
       type: ContactSchema,
+      set: toTitleCase,
       required: [true, 'Informações de contato são obrigatórias.'],
     },
 

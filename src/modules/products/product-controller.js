@@ -2,7 +2,8 @@ import asyncHandler from 'express-async-handler';
 import * as productService from './product-service.js';
 
 const handleGetAllProducts = asyncHandler(async (req, res) => {
-  const products = await productService.getAllProducts();
+  const filters = req.query;
+  const products = await productService.getAllProducts(filters);
   res.json(products);
 });
 
@@ -35,8 +36,6 @@ const handleUpdateProduct = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const payload = req.body;
   const imageFiles = req.body?.images || [];
-
-  console.log(req.body);
 
   const imagesToSave = imageFiles.map((file) => ({
     url: file.location || file.url,

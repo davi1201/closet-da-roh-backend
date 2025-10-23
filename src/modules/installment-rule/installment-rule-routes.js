@@ -8,4 +8,6 @@ router.get(
   InstallmentController.getPaymentConditions.bind(InstallmentController)
 );
 
+router.post('/', InstallmentController.createRule.bind(InstallmentController));
+
 export default router;

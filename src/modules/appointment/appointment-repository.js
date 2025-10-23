@@ -35,6 +35,21 @@ class AppointmentRepository {
     );
     return await availability.findOne({ appointment: appointmentId });
   }
+
+  async countUpcoming(todayStart) {
+    return await Appointment.countDocuments({
+      status: 'confirmed',
+      startTime: { $gte: todayStart },
+    });
+  }
+
+  async findRecent(limit = 5) {
+    return await Appointment.find({ status: 'confirmed' })
+      .sort({ startTime: 1 }) // Pega os mais próximos (pode ser -1 se quiser os recém-criados)
+      .limit(limit)
+      .populate('client', 'name') // Popula apenas o nome do cliente
+      .lean();
+  }
 }
 
 export default new AppointmentRepository();

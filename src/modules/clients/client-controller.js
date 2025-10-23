@@ -9,12 +9,14 @@ class ClientController {
     try {
       const clientData = req.body;
       const newClient = await ClientService.createClient(clientData);
+
       return res.status(201).json(newClient);
     } catch (error) {
       if (error.message.includes('já existe')) {
         return res.status(409).json({ message: error.message });
       }
 
+      // 400 Bad Request: Dados inválidos
       if (
         error.name === 'ValidationError' ||
         error.message.includes('obrigatório')
@@ -42,11 +44,11 @@ class ClientController {
       // 200 OK: Retorna os dados
       return res.status(200).json(client);
     } catch (error) {
+      // 404 Not Found
       if (error.message.includes('não encontrado')) {
-        return res.status(404).json({ message: error.message }); // 404 Not Found
+        return res.status(404).json({ message: error.message });
       }
 
-      // 500 Internal Server Error
       console.error('Erro ao buscar cliente:', error);
       return res.status(500).json({ message: 'Erro interno do servidor.' });
     }
@@ -58,9 +60,7 @@ class ClientController {
    */
   async listClients(req, res) {
     try {
-      // Converte o query param 'active' (string) para boolean
       const onlyActive = req.query.active !== 'false';
-
       const clients = await ClientService.listClients(onlyActive);
 
       // 200 OK: Retorna a lista
@@ -85,48 +85,80 @@ class ClientController {
       // 200 OK: Retorna o documento atualizado
       return res.status(200).json(updatedClient);
     } catch (error) {
+      // 404 Not Found
       if (error.message.includes('não encontrado')) {
-        return res.status(404).json({ message: error.message }); // 404 Not Found
+        return res.status(404).json({ message: error.message });
       }
+
+      // 400 Bad Request (Regra de Negócio)
       if (
         error.message.includes('não é possível atualizar') ||
         error.message.includes('dados inválidos')
       ) {
-        return res.status(400).json({ message: error.message }); // 400 Bad Request (Regra de Negócio)
+        return res.status(400).json({ message: error.message });
       }
 
-      // 500 Internal Server Error
       console.error('Erro ao atualizar cliente:', error);
       return res.status(500).json({ message: 'Erro interno do servidor.' });
     }
   }
 
   /**
-   * [POST] /api/clients/:id/desired-product
+   * [POST] /api/clients/:clientId/desired-product
    * Adiciona um produto à lista de desejos.
    */
   async addDesiredProduct(req, res) {
     try {
-      const { id } = req.params;
-      const productData = req.body; // Deve conter { fotoUrl, descricao }
+      // --- AJUSTE: Renomeado para 'clientId' para clareza ---
+      const { clientId } = req.params;
+      const productData = req.body; // Deve conter { photoUrl, description }
 
-      const updatedClient = await ClientService.addDesiredProduct(
-        id,
+      // --- AJUSTE: O service agora retorna o *novo produto* ---
+      const newProduct = await ClientService.addDesiredProduct(
+        clientId,
         productData
       );
 
-      // 200 OK (ou 201 se preferir para criação de sub-recurso)
-      return res.status(200).json(updatedClient);
+      // --- AJUSTE: Retorna 201 Created e o novo produto ---
+      return res.status(201).json(newProduct);
     } catch (error) {
+      // 404 Not Found
       if (error.message.includes('não encontrado')) {
-        return res.status(404).json({ message: error.message }); // 404 Not Found
+        return res.status(404).json({ message: error.message });
       }
+      // 403 Forbidden (ou 400 Bad Request), regra de negócio
       if (error.message.includes('Limite de')) {
-        return res.status(403).json({ message: error.message }); // 403 Forbidden (ou 400 Bad Request)
+        return res.status(403).json({ message: error.message });
       }
 
-      // 500 Internal Server Error
       console.error('Erro ao adicionar produto desejado:', error);
+      return res.status(500).json({ message: 'Erro interno do servidor.' });
+    }
+  }
+
+  /**
+   * [DELETE] /api/clients/:clientId/desired-product/:productId
+   * Remove um produto da lista de desejos.
+   */
+  async removeDesiredProduct(req, res) {
+    try {
+      const { clientId, productId } = req.params;
+
+      await ClientService.removeDesiredProduct(clientId, productId);
+
+      // 204 No Content: Sucesso, sem corpo de resposta
+      return res.status(204).send();
+    } catch (error) {
+      // 404 Not Found (Cliente ou Produto)
+      if (error.message.includes('não encontrado')) {
+        return res.status(404).json({ message: error.message });
+      }
+      // 403 Forbidden (Cliente não é "dono" do produto)
+      if (error.message.includes('não autorizado')) {
+        return res.status(403).json({ message: error.message });
+      }
+
+      console.error('Erro ao remover produto desejado:', error);
       return res.status(500).json({ message: 'Erro interno do servidor.' });
     }
   }
@@ -140,15 +172,33 @@ class ClientController {
       const { id } = req.params;
       await ClientService.deactivateClient(id);
 
-      // 204 No Content: Sucesso na ação, mas não há corpo para retornar
+      // 204 No Content: Sucesso na ação
       return res.status(204).send();
     } catch (error) {
+      // 404 Not Found
       if (error.message.includes('não encontrado')) {
-        return res.status(404).json({ message: error.message }); // 404 Not Found
+        return res.status(404).json({ message: error.message });
       }
 
-      // 500 Internal Server Error
       console.error('Erro ao desativar cliente:', error);
+      return res.status(500).json({ message: 'Erro interno do servidor.' });
+    }
+  }
+
+  async getClientByPhone(req, res) {
+    try {
+      const { phone } = req.params;
+      const client = await ClientService.findByPhone(phone);
+
+      // 200 OK: Retorna os dados
+      return res.status(200).json(client);
+    } catch (error) {
+      // 404 Not Found
+      if (error.message.includes('não encontrado')) {
+        return res.status(404).json({ message: error.message });
+      }
+
+      console.error('Erro ao buscar cliente por telefone:', error);
       return res.status(500).json({ message: 'Erro interno do servidor.' });
     }
   }

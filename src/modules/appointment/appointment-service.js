@@ -22,7 +22,7 @@ async function bookAppointment(data) {
     // 1. Verifica se o slot existe e AINDA está vago
     const slot = await availabilityRepository.findById(slotId, null, {
       session,
-    }); // CORRECT
+    });
 
     if (!slot) {
       throw new Error('Horário não encontrado.');
@@ -33,35 +33,49 @@ async function bookAppointment(data) {
       );
     }
 
-    // 2. Cria o Agendamento (Appointment)
-    const newAppointment = await appointmentRepository.create({
-      clientName,
-      clientPhone,
-      clientAddress,
-      notes,
-      startTime: slot.startTime, // Copia os horários do slot
-      endTime: slot.endTime,
-      status: 'confirmed',
-    });
-
-    const newClientData = {
+    // 2. Encontra ou Cria o Cliente (dentro da transação)
+    const clientData = {
       name: clientName,
       phoneNumber: clientPhone,
       address: clientAddress,
-      instagram: data.clientInstagram || '',
     };
 
-    const newCLient = await clientRepository.create(newClientData);
+    const client = await clientRepository.findOrCreateByPhone(clientData, {
+      session,
+    });
 
-    // 3. Atualiza (Trava) o Slot de Disponibilidade
-    await availabilityRepository.bookSlot(slotId, newAppointment._id);
+    // 3. Cria o Agendamento (Appointment) com a REFERÊNCIA
+    const newAppointment = await appointmentRepository.create(
+      {
+        client: client._id, // Referência ao cliente
+        notes,
+        startTime: slot.startTime, // Copia os horários do slot
+        endTime: slot.endTime,
+        status: 'confirmed',
+      },
+      { session }
+    );
 
-    // 4. Confirma a transação
+    // 4. (Opcional) Vincula o agendamento ao cliente
+    await clientRepository.addAppointment(client._id, newAppointment._id, {
+      session,
+    });
+
+    // 5. Atualiza (Trava) o Slot de Disponibilidade
+    await availabilityRepository.bookSlot(slotId, newAppointment._id, {
+      session,
+    });
+
+    // 6. Confirma a transação
     await session.commitTransaction();
-    return { newAppointment, newCLient };
+    return { newAppointment, client }; // Retorna o cliente (novo ou encontrado)
   } catch (error) {
-    // 5. Se algo der errado, desfaz tudo
+    // 7. Se algo der errado, desfaz tudo
     await session.abortTransaction();
+    // Garante que o erro seja propagado para o controller
+    if (error.message.includes('duplicate key')) {
+      throw new Error('Falha ao processar o cliente. Telefone duplicado?');
+    }
     throw error;
   } finally {
     session.endSession();
@@ -71,6 +85,7 @@ async function bookAppointment(data) {
 // (Lógica do ADMIN)
 // Ver agendamentos (dia/semana/mês)
 async function getAdminAppointments(startDate, endDate) {
+  // Este populate é novo, assumindo que seu repo foi atualizado
   return await appointmentRepository.findByDateRange(startDate, endDate);
 }
 
@@ -83,17 +98,34 @@ async function cancelAppointment(appointmentId) {
     // 1. Marca o agendamento como "cancelado"
     const canceledAppointment = await appointmentRepository.updateStatus(
       appointmentId,
-      'canceled'
+      'canceled',
+      { session }
     );
 
-    // 2. Encontra o slot que ele estava usando
-    const slot = await availabilityRepository.findOne({
-      appointment: appointmentId,
-    });
+    if (!canceledAppointment) {
+      throw new Error('Agendamento não encontrado para cancelamento.');
+    }
 
-    // 3. Libera o slot para ser reservado novamente
+    // 2. (Opcional) Remove o agendamento do array do cliente
+    if (canceledAppointment.client) {
+      await clientRepository.removeAppointment(
+        canceledAppointment.client.toString(), // Garante que é string
+        appointmentId,
+        { session }
+      );
+    }
+
+    // 3. Encontra o slot que ele estava usando
+    const slot = await availabilityRepository.findOne(
+      {
+        appointment: appointmentId,
+      },
+      { session }
+    );
+
+    // 4. Libera o slot para ser reservado novamente
     if (slot) {
-      await availabilityRepository.unbookSlot(slot._id);
+      await availabilityRepository.unbookSlot(slot._id, { session });
     }
 
     await session.commitTransaction();

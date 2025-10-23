@@ -107,6 +107,50 @@ const updateStockBatch = async (stockUpdates) => {
   }
 };
 
+const countLowStock = async () => {
+  return await ProductVariant.countDocuments({
+    // $expr permite comparar dois campos do mesmo documento
+    $expr: { $lte: ['$quantity', '$minimum_stock'] },
+  });
+};
+
+const calculateInventoryValue = async () => {
+  const result = await ProductVariant.aggregate([
+    // 1. Filtrar variantes que estão em estoque
+    {
+      $match: {
+        quantity: { $gt: 0 },
+      },
+    },
+    // 2. Calcular o valor de custo e venda para cada variante
+    {
+      $project: {
+        costValue: { $multiply: ['$buy_price', '$quantity'] },
+        saleValue: { $multiply: ['$sale_price', '$quantity'] },
+      },
+    },
+    // 3. Agrupar TUDO e somar os valores calculados
+    {
+      $group: {
+        _id: null, // Agrupa todos os documentos em um único grupo
+        totalCost: { $sum: '$costValue' },
+        totalSaleValue: { $sum: '$saleValue' },
+      },
+    },
+  ]);
+
+  // O resultado da agregação é um array com um objeto (ou vazio se não houver estoque)
+  if (result.length > 0) {
+    return {
+      totalCost: result[0].totalCost || 0,
+      totalSaleValue: result[0].totalSaleValue || 0,
+    };
+  } else {
+    // Se não houver estoque, retorna zero
+    return { totalCost: 0, totalSaleValue: 0 };
+  }
+};
+
 export default {
   createVariant,
   findVariantsByProductIds,
@@ -115,4 +159,6 @@ export default {
   updateVariant,
   removeVariant,
   updatePricesAndLogHistory,
+  countLowStock,
+  calculateInventoryValue,
 };

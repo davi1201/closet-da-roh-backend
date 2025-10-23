@@ -1,35 +1,18 @@
-import mongoose from 'mongoose';
-
-// Sub-schema para o endereço
-const AddressSchema = new mongoose.Schema(
-  {
-    street: { type: String, required: true },
-    number: { type: String, required: true },
-    neighborhood: { type: String, required: true },
-    city: { type: String, required: true },
-    state: { type: String, required: true, length: 2 },
-    zipCode: { type: String, required: true },
-    details: { type: String }, // Ex: "Apto 101", "Casa dos fundos"
-  },
-  { _id: false }
-);
+import mongoose, { Schema } from 'mongoose';
 
 const AppointmentSchema = new mongoose.Schema(
   {
-    // Vamos armazenar os dados da cliente direto aqui
-    clientName: {
-      type: String,
+    // O campo 'client' que referencia o outro model
+    client: {
+      type: Schema.Types.ObjectId,
+      ref: 'Client', // Referencia o model 'Client'
       required: true,
+      index: true,
     },
-    clientPhone: {
-      type: String,
-      required: true,
-    },
-    clientAddress: {
-      type: AddressSchema,
-      required: true,
-    },
-    // Horários (copiados do slot para histórico)
+
+    // Os campos antigos (clientName, clientPhone, clientAddress)
+    // devem ser REMOVIDOS daqui.
+
     startTime: {
       type: Date,
       required: true,
@@ -53,5 +36,8 @@ const AppointmentSchema = new mongoose.Schema(
   }
 );
 
-const Appointment = mongoose.model('Appointment', AppointmentSchema);
+const Appointment =
+  mongoose.models.Appointment ||
+  mongoose.model('Appointment', AppointmentSchema);
+
 export default Appointment;

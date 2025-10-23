@@ -1,14 +1,10 @@
-import ClientRepository from './client-repository.js'; // Importa o Repositório
+import ClientRepository from './client-repository.js';
+import DesiredProductRepository from './desired-products/desired-product-repository.js';
 
 class ClientService {
-  /**
-   * Cria um novo cliente após validar dados básicos.
-   * @param {Object} clientData - Os dados do novo cliente.
-   * @returns {Promise<Object>} O novo cliente criado.
-   */
   async createClient(clientData) {
     const existingClient = await ClientRepository.findByPhoneNumber(
-      clientData.phoneNumber || clientData.telefone
+      clientData.phoneNumber
     );
 
     if (existingClient) {
@@ -17,47 +13,30 @@ class ClientService {
       );
     }
 
-    clientData.name = clientData.name
-      ? clientData.name.toUpperCase()
-      : clientData.name;
-
     clientData.is_active = true;
 
     return await ClientRepository.create(clientData);
   }
 
-  //---
+  async findOrCreateClient(clientData) {
+    if (!clientData.phoneNumber || !clientData.name || !clientData.address) {
+      throw new Error('Nome, Telefone e Endereço são obrigatórios.');
+    }
 
-  /**
-   * Obtém um cliente, verificando se ele existe.
-   * @param {string} id - O ID do cliente.
-   * @returns {Promise<Object|null>} O cliente encontrado.
-   */
+    return await ClientRepository.findOrCreateByPhone(clientData);
+  }
+
   async getClientById(id) {
     const client = await ClientRepository.findById(id);
 
     if (!client) {
       throw new Error(`Cliente com ID ${id} não encontrado.`);
     }
-
-    // Exemplo de Lógica de Negócio #3: Filtrar campos antes de retornar (opcional)
-    // Se você não usou .lean() no repo, poderia fazer: client.productsDesejados = [];
-
     return client;
   }
 
-  //---
-
-  /**
-   * Atualiza os dados de um cliente.
-   * @param {string} id - O ID do cliente a ser atualizado.
-   * @param {Object} updateData - Os dados a serem atualizados.
-   * @returns {Promise<Object>} O cliente atualizado.
-   */
   async updateClient(id, updateData) {
-    // Exemplo de Lógica de Negócio #4: Não permitir alterar o poder aquisitivo se o campo X não estiver preenchido
     if (updateData.purchasingPower && !updateData.profession) {
-      // Lança um erro de negócio
       throw new Error(
         'Não é possível atualizar o poder aquisitivo sem informar a profissão.'
       );
@@ -72,56 +51,52 @@ class ClientService {
     return updatedClient;
   }
 
-  //---
-
-  /**
-   * Adiciona um novo produto desejado à lista do cliente.
-   * Esta é uma função típica de Service, que envolve uma lógica específica.
-   * @param {string} clientId - O ID do cliente.
-   * @param {Object} productData - { fotoUrl: string, descricao: string }
-   * @returns {Promise<Object>} O cliente atualizado.
-   */
   async addDesiredProduct(clientId, productData) {
-    // 1. Lógica de Negócio: Limite de itens na lista de desejos
-    const client = await ClientRepository.findById(clientId);
-
-    if (!client) {
-      throw new Error(`Cliente com ID ${clientId} não encontrado.`);
-    }
+    const client = await this.getClientById(clientId);
 
     if (client.desiredProducts.length >= 10) {
       throw new Error('Limite de 10 produtos desejados atingido.');
     }
 
-    // 2. Cria o objeto de atualização para o MongoDB
-    const updateQuery = {
-      $push: {
-        desiredProducts: productData,
-      },
-    };
+    const newProduct = await DesiredProductRepository.create({
+      ...productData,
+      client: clientId,
+    });
 
-    // 3. Delega a atualização ao repositório
-    return await ClientRepository.update(clientId, updateQuery);
+    await ClientRepository.addDesiredProduct(clientId, newProduct._id);
+
+    return newProduct;
   }
 
-  //---
+  async removeDesiredProduct(clientId, productId) {
+    const product = await DesiredProductRepository.findById(productId);
+    if (!product) {
+      throw new Error('Produto desejado não encontrado.');
+    }
 
-  /**
-   * Retorna todos os clientes.
-   * @param {boolean} onlyActive - Se deve retornar apenas clientes ativos (padrão: true).
-   * @returns {Promise<Array<Object>>} Lista de clientes.
-   */
+    if (product.client.toString() !== clientId) {
+      throw new Error('Cliente não autorizado a remover este produto.');
+    }
+
+    await DesiredProductRepository.delete(productId);
+
+    await ClientRepository.removeDesiredProduct(clientId, productId);
+
+    return { success: true, removedId: productId };
+  }
+
   async listClients(onlyActive) {
-    return await ClientRepository.findAll(onlyActive);
+    let clients = await ClientRepository.findAll(onlyActive);
+
+    clients = clients.map((client) => ({
+      ...client,
+      products_url:
+        process.env.FRONTEND_URL + `/products?client_id=${client.phoneNumber}`,
+    }));
+
+    return clients;
   }
 
-  //---
-
-  /**
-   * Desativa um cliente.
-   * @param {string} id - O ID do cliente.
-   * @returns {Promise<Object>} O cliente desativado.
-   */
   async deactivateClient(id) {
     const deactivated = await ClientRepository.deactivate(id);
 
@@ -130,6 +105,27 @@ class ClientService {
     }
 
     return deactivated;
+  }
+
+  async linkAppointmentToClient(clientId, appointmentId) {
+    return await ClientRepository.addAppointment(clientId, appointmentId);
+  }
+
+  async unlinkAppointmentFromClient(clientId, appointmentId) {
+    return await ClientRepository.removeAppointment(clientId, appointmentId);
+  }
+
+  async findByPhone(phoneNumber) {
+    // O 'normalizeString' (que remove '()', '-') deve estar no seu repo
+    const client = await ClientRepository.findByPhoneNumber(phoneNumber);
+    if (!client) {
+      throw new Error('Cliente não encontrado.');
+    }
+    // IMPORTANTE: Retorne APENAS o que é seguro para o público
+    return {
+      _id: client._id,
+      name: client.name,
+    };
   }
 }
 

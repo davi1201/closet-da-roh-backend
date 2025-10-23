@@ -1,7 +1,46 @@
 import { formatCurrency } from '../../utils/formatter.js';
 import saleSettingService from '../sale-settings/sale-setting-service.js';
+import installmentRuleRepository from './installment-rule-repository.js';
 
 class InstallmentService {
+  async addInstallmentRule(ruleData) {
+    const { min_purchase_value, rules } = ruleData;
+
+    // 1. Validação de campos principais
+    if (min_purchase_value === undefined || min_purchase_value < 0) {
+      throw new Error(
+        'Valor mínimo de compra é obrigatório e não pode ser negativo.'
+      );
+    }
+
+    if (!rules || !Array.isArray(rules) || rules.length === 0) {
+      throw new Error('É necessário fornecer pelo menos uma opção de parcela.');
+    }
+
+    // 2. Lógica de Negócio: Verificar duplicatas
+    const existingRule = await installmentRuleRepository.findApplicableRule(
+      min_purchase_value
+    );
+
+    if (existingRule) {
+      throw new Error(
+        `Já existe uma regra de parcelamento definida para o valor mínimo de ${min_purchase_value}.`
+      );
+    }
+
+    // 3. (Opcional) Validação interna das regras (o Mongoose já faz, mas é bom)
+    for (const rule of rules) {
+      if (!rule.installments || rule.installments < 1) {
+        throw new Error(
+          'Todas as regras devem ter um número de parcelas válido.'
+        );
+      }
+    }
+
+    // 4. Chamar o Repositório para criar
+    return await installmentRuleRepository.create(ruleData);
+  }
+
   _findBestInstallmentRule(rules, amount) {
     const ruleList = rules || [];
     let bestRule = null;

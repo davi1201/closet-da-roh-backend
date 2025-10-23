@@ -1,0 +1,18 @@
+export const PRODUCT_COLORS = [
+  { value: 'yellow', label: 'Amarelo', code: 'AMA' },
+  { value: 'blue', label: 'Azul', code: 'AZU' },
+  { value: 'beige', label: 'Bege', code: 'BGE' },
+  { value: 'white', label: 'Branco', code: 'BCO' },
+  { value: 'gray', label: 'Cinza', code: 'CZA' },
+  { value: 'gold', label: 'Dourado', code: 'DOU' },
+  { value: 'print', label: 'Estampado', code: 'EST' },
+  { value: 'orange', label: 'Laranja', code: 'LAR' },
+  { value: 'brown', label: 'Marrom', code: 'MAR' },
+  { value: 'offwhite', label: 'Off-White', code: 'OFF' },
+  { value: 'silver', label: 'Prata', code: 'PRA' },
+  { value: 'black', label: 'Preto', code: 'PTO' },
+  { value: 'pink', label: 'Rosa', code: 'ROS' },
+  { value: 'purple', label: 'Roxo', code: 'RXO' },
+  { value: 'green', label: 'Verde', code: 'VDE' },
+  { value: 'red', label: 'Vermelho', code: 'VER' },
+];

@@ -2,6 +2,24 @@ import supplierService from '../supplier/supplier-service.js';
 import productRepository from './product-repository.js';
 import productVariantRepository from '../product-variant/product-variant-repository.js';
 
+// --- AJUSTE 1: Importe suas constantes de SKU ---
+// (Ajuste os caminhos se necessário)
+import { PRODUCT_CATEGORIES } from '../../constants/product-categories.js';
+import { PRODUCT_COLORS } from '../../constants/product-colors.js';
+
+// --- AJUSTE 2: Helper para buscar o código das constantes ---
+const getCode = (list, value, field = 'value') => {
+  if (!value) return 'XXX'; // Retorna 'XXX' se o valor for nulo/vazio
+  const item = list.find((it) => it[field] === value);
+  if (item && item.code) return item.code;
+
+  // Fallback: Pega os 3 primeiros caracteres se não achar um código
+  return value
+    .toUpperCase()
+    .substring(0, 3)
+    .replace(/[^A-Z0-9]/g, '');
+};
+
 const unmaskCurrency = (value) => {
   if (typeof value === 'number' || !value) {
     return value;
@@ -39,8 +57,8 @@ const getProductById = async (id) => {
   };
 };
 
-const getAllProducts = async () => {
-  const products = await productRepository.findAll();
+const getAllProducts = async (filters = {}) => {
+  const products = await productRepository.findAll(filters);
 
   const productIds = products.map((p) => p._id);
 
@@ -61,10 +79,13 @@ const getAllProducts = async () => {
   return productsWithVariants;
 };
 
+// --- AJUSTE 3: Modificação no createProduct ---
 const createProduct = async (productData, imageFiles) => {
   const {
     supplier_id,
     variants: variantsJSON,
+    category, // Pega a Categoria
+    code, // Pega o Código
     ...parentProductData
   } = productData;
 
@@ -79,14 +100,28 @@ const createProduct = async (productData, imageFiles) => {
     throw new Error('Fornecedor não encontrado.');
   }
 
+  // Monta a base do SKU (ex: "VES-12345")
+  const categoryCode = getCode(PRODUCT_CATEGORIES, category);
+  const productCode = code ? String(code).toUpperCase() : 'NOCODE';
+  const skuBase = `${categoryCode}-${productCode}`;
+
   parentProductData.supplier = supplier_id;
   parentProductData.images = imageFiles;
+  parentProductData.category = category; // Garante que a categoria seja salva
+  parentProductData.code = code; // Garante que o código seja salvo
 
   const newProduct = await productRepository.create(parentProductData);
 
   const createdVariants = await Promise.all(
     variants.map(async (variant) => {
-      const { buy_price, sale_price, ...variantDetails } = variant;
+      const { buy_price, sale_price, color, size, ...variantDetails } = variant;
+
+      // Monta o final do SKU (ex: "PTO-M")
+      const colorCode = getCode(PRODUCT_COLORS, color);
+      const sizeCode = size ? String(size).toUpperCase() : 'U'; // 'U' para Tamanho Único
+
+      // SKU Final: "VES-12345-PTO-M"
+      const generatedSku = `${skuBase}-${colorCode}-${sizeCode}`;
 
       const numericBuyPrice = unmaskCurrency(buy_price);
       const numericSalePrice = unmaskCurrency(sale_price);
@@ -99,6 +134,9 @@ const createProduct = async (productData, imageFiles) => {
 
       const variantToCreate = {
         ...variantDetails,
+        color, // Salva o valor (ex: 'preto')
+        size, // Salva o valor (ex: 'P')
+        sku: generatedSku, // Salva o SKU gerado
         product: newProduct._id,
         buy_price: numericBuyPrice,
         sale_price: numericSalePrice,
@@ -136,6 +174,7 @@ const updatePrices = async (variantId, newBuyPrice, newSalePrice) => {
   return updatedVariant;
 };
 
+// --- AJUSTE 4: Modificação no updateProduct ---
 const updateProduct = async (id, updateData, imageFiles) => {
   const {
     variants: variantsJSON,
@@ -167,7 +206,15 @@ const updateProduct = async (id, updateData, imageFiles) => {
     delete parentUpdateData.supplier_id;
   }
 
+  // Atualiza o produto PAI primeiro
   const updatedProduct = await productRepository.update(id, parentUpdateData);
+
+  // Define a base do SKU usando os dados ATUALIZADOS do produto
+  const category = updatedProduct.category;
+  const code = updatedProduct.code;
+  const categoryCode = getCode(PRODUCT_CATEGORIES, category);
+  const productCode = code ? String(code).toUpperCase() : 'NOCODE';
+  const skuBase = `${categoryCode}-${productCode}`;
 
   let variants = [];
   if (variantsJSON) {
@@ -183,6 +230,8 @@ const updateProduct = async (id, updateData, imageFiles) => {
         _id: variantId,
         buy_price,
         sale_price,
+        color, // Pega a cor
+        size, // Pega o tamanho
         ...variantDetails
       } = variant;
 
@@ -190,19 +239,32 @@ const updateProduct = async (id, updateData, imageFiles) => {
       const numericSalePrice = unmaskCurrency(sale_price);
 
       if (variantId) {
+        // Variante existente: apenas atualiza os dados
+        // (SKUs não devem mudar após a criação)
         return await productVariantRepository.updateVariant(variantId, {
           ...variantDetails,
+          color,
+          size,
           buy_price: numericBuyPrice,
           sale_price: numericSalePrice,
         });
       } else {
+        // Nova variante: Gera um SKU para ela
+        const colorCode = getCode(PRODUCT_COLORS, color);
+        const sizeCode = size ? String(size).toUpperCase() : 'U';
+        const generatedSku = `${skuBase}-${colorCode}-${sizeCode}`;
+
         const initialPriceLog = {
           buyPrice: numericBuyPrice,
           salePrice: numericSalePrice,
           changedAt: new Date(),
         };
+
         return await productVariantRepository.createVariant({
           ...variantDetails,
+          color,
+          size,
+          sku: generatedSku, // Salva o SKU gerado
           product: id,
           buy_price: numericBuyPrice,
           sale_price: numericSalePrice,

@@ -10,6 +10,8 @@ import salesRoutes from '../modules/sales/sale-routes.js';
 import { appointmentRoutes as appointmentPublicRoutes } from '../modules/appointment/appointment-public-routes.js';
 import { appointmentRoutes as appointmentAdminRoutes } from '../modules/appointment/appointment-admin-routes.js';
 import availabilityRoutes from '../modules/availability/availability-routes.js';
+import productInteractionRoutes from '../modules/product-interation/product-interaction-routes.js';
+import dashboardRoutes from '../modules/dashboard/dashboard-routes.js';
 
 const router = Router();
 
@@ -23,5 +25,7 @@ router.use('/sales', salesRoutes);
 router.use('/appointments/public', appointmentPublicRoutes);
 router.use('/appointments/admin', appointmentAdminRoutes);
 router.use('/availability', availabilityRoutes);
+router.use('/product-interactions', productInteractionRoutes);
+router.use('/admin/dashboard', dashboardRoutes);
 
 export const v1Routes = router;

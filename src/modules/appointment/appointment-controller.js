@@ -11,15 +11,12 @@ const getPublicSlots = asyncHandler(async (req, res) => {
   res.json(slots);
 });
 
-// (CLIENTE) POST /public/appointments
 const bookAppointment = asyncHandler(async (req, res) => {
   const data = req.body;
-  // (Validação do body...)
   const newAppointment = await appointmentService.bookAppointment(data);
   res.status(201).json(newAppointment);
 });
 
-// (ADMIN) GET /appointments?startDate=...&endDate=...
 const getAppointments = asyncHandler(async (req, res) => {
   const { startDate, endDate } = req.query;
   const appointments = await appointmentService.getAdminAppointments(
