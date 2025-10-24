@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import appointmentRepository from './appointment-repository.js';
 import availabilityRepository from '../availability/availability-repository.js';
 import clientRepository from '../clients/client-repository.js';
+import notificationService from '../notifications/notification-service.js';
 
 // (Lógica da CLIENTE)
 // Retorna os slots (vagos e ocupados) para um dia
@@ -18,8 +19,10 @@ async function bookAppointment(data) {
   const session = await mongoose.startSession();
   session.startTransaction();
 
+  let newAppointment; // Declare fora do try para acesso no finally/after
+  let client; // Declare fora do try
+
   try {
-    // 1. Verifica se o slot existe e AINDA está vago
     const slot = await availabilityRepository.findById(slotId, null, {
       session,
     });
@@ -33,50 +36,65 @@ async function bookAppointment(data) {
       );
     }
 
-    // 2. Encontra ou Cria o Cliente (dentro da transação)
     const clientData = {
       name: clientName,
       phoneNumber: clientPhone,
       address: clientAddress,
     };
 
-    const client = await clientRepository.findOrCreateByPhone(clientData, {
+    client = await clientRepository.findOrCreateByPhone(clientData, {
       session,
     });
 
-    // 3. Cria o Agendamento (Appointment) com a REFERÊNCIA
-    const newAppointment = await appointmentRepository.create(
+    newAppointment = await appointmentRepository.create(
       {
-        client: client._id, // Referência ao cliente
+        client: client._id,
         notes,
-        startTime: slot.startTime, // Copia os horários do slot
+        startTime: slot.startTime,
         endTime: slot.endTime,
         status: 'confirmed',
       },
       { session }
     );
 
-    // 4. (Opcional) Vincula o agendamento ao cliente
     await clientRepository.addAppointment(client._id, newAppointment._id, {
       session,
     });
-
-    // 5. Atualiza (Trava) o Slot de Disponibilidade
     await availabilityRepository.bookSlot(slotId, newAppointment._id, {
       session,
     });
 
-    // 6. Confirma a transação
-    await session.commitTransaction();
-    return { newAppointment, client }; // Retorna o cliente (novo ou encontrado)
+    await session.commitTransaction(); // Transação bem-sucedida
+
+    // --- AJUSTE 2: Chame a notificação APÓS o commit ---
+    // Coloque fora da transação principal, mas dentro de um try/catch próprio
+    try {
+      console.log(
+        '[AppointmentService] Agendamento criado com sucesso. Enviando notificação...'
+      );
+      // Passa o objeto do agendamento recém-criado e o nome do cliente
+      await notificationService.notifyNewAppointment(
+        newAppointment,
+        client.name
+      );
+      console.log('[AppointmentService] Notificação enviada (ou tentativa).');
+    } catch (notificationError) {
+      // É importante capturar erros aqui para não quebrar a resposta principal
+      console.error(
+        '[AppointmentService] Erro ao enviar notificação APÓS agendamento:',
+        notificationError
+      );
+      // Não relance o erro, apenas logue
+    }
+    // --- FIM DO AJUSTE 2 ---
+
+    return { newAppointment, client };
   } catch (error) {
-    // 7. Se algo der errado, desfaz tudo
     await session.abortTransaction();
-    // Garante que o erro seja propagado para o controller
     if (error.message.includes('duplicate key')) {
       throw new Error('Falha ao processar o cliente. Telefone duplicado?');
     }
-    throw error;
+    throw error; // Relança outros erros
   } finally {
     session.endSession();
   }
