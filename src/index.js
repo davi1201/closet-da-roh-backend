@@ -25,7 +25,7 @@ async function startServer() {
     app.use('/api/v1', v1Routes);
 
     // Inicializa o servidor
-    const PORT = process.env.PORT || 3000;
+    const PORT = process.env.API_PORT || 3000;
     const HOST = '192.168.0.102'; // Garante que o servidor escute em todas as interfaces de rede (incluindo o IP local)
 
     // Chamada de listen com o host explicitamente definido

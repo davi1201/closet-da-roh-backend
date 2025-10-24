@@ -5,13 +5,13 @@ import sharp from 'sharp'; // Importe o sharp
 
 // --- Configuração do S3 (igual) ---
 const s3Client = new S3Client({
-  region: process.env.AWS_REGION,
+  region: process.env.API_AWS_REGION,
   credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    accessKeyId: process.env.API_AWS_ACCESS_KEY,
+    secretAccessKey: process.env.API_AWS_SECRET_ACCESS_KEY,
   },
 });
-const BUCKET_NAME = process.env.AWS_BUCKET_NAME;
+const BUCKET_NAME = process.env.API_AWS_BUCKET_NAME;
 
 // --- ETAPA 1: Middleware do Multer (para MemoryStorage) ---
 // Isso apenas coloca o(s) arquivo(s) em req.files
@@ -53,7 +53,7 @@ const optimizeAndUpload = async (file) => {
   await s3Client.send(command);
 
   // Retorna os dados que o controller precisará
-  const s3Url = `https://${BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${newKey}`;
+  const s3Url = `https://${BUCKET_NAME}.s3.${process.env.API_AWS_REGION}.amazonaws.com/${newKey}`;
   return {
     url: s3Url,
     key: newKey,
