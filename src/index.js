@@ -14,30 +14,49 @@ const app = express();
 // Middlewares
 app.use(
   cors({
-    // Use a variável de ambiente renomeada ou permita tudo em dev
-    origin:
-      process.env.APP_FRONTEND_URL ||
-      (process.env.NODE_ENV === 'development' ? '*' : undefined),
+    origin: (origin, callback) => {
+      // Lista de origens permitidas
+      const allowedOrigins = [
+        'https://closet-da-roh-front.vercel.app',
+        process.env.APP_FRONTEND_URL,
+      ].filter(Boolean); // Remove valores undefined/null
+
+      // Em desenvolvimento, permite qualquer origem
+      if (process.env.NODE_ENV === 'development') {
+        return callback(null, true);
+      }
+
+      // Permite requisições sem origin (como Postman, curl, etc.)
+      if (!origin) {
+        return callback(null, true);
+      }
+
+      // Verifica se a origem está na lista de permitidas
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Origin not allowed by CORS'));
+      }
+    },
+    credentials: true, // Permite envio de cookies/credenciais
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
   })
 );
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Conecta ao banco de dados (pode ser chamado aqui ou dentro de uma função async)
-connectDB(); // Assuming connectDB handles potential errors or logs success
+// Conecta ao banco de dados
+connectDB();
 
 // Rotas
-app.get('/api', (req, res) => res.send('API Closet da Roh está rodando! 🚀')); // Mudado para /api para consistência
-app.use('/api/v1', v1Routes); // Assume que v1Routes contém todas as suas rotas (/users, /products, etc.)
-
-// --- Ajuste para Vercel ---
-// Remove a chamada direta de listen daqui e exporta o app
+app.get('/api', (req, res) => res.send('API Closet da Roh está rodando! 🚀'));
+app.use('/api/v1', v1Routes);
 
 // Opcional: Bloco para rodar localmente (NÃO será executado na Vercel)
 if (process.env.NODE_ENV !== 'production') {
-  const localPort = process.env.API_PORT || 5005; // Usa a porta do .env ou 5005
-  // Removido o HOST fixo, '0.0.0.0' (padrão) ou deixar em branco geralmente funciona melhor localmente
-  // para aceitar conexões de qualquer interface de rede (incluindo IP local)
+  const localPort = process.env.API_PORT || 5005;
   app.listen(localPort, () =>
     console.log(
       `Servidor LOCAL rodando em http://localhost:${localPort} (e acessível via IP local)`
@@ -45,5 +64,5 @@ if (process.env.NODE_ENV !== 'production') {
   );
 }
 
-// --- Exporta o app para o Vercel ---
+// Exporta o app para o Vercel
 export default app;
