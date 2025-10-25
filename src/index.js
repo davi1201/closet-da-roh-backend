@@ -18,6 +18,7 @@ app.use(
       // Lista de origens permitidas
       const allowedOrigins = [
         'https://closet-da-roh-front.vercel.app',
+        'https://closetdaroh.com.br/',
         process.env.APP_FRONTEND_URL,
       ].filter(Boolean); // Remove valores undefined/null
 
