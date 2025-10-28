@@ -2,7 +2,7 @@ import saleRepository from './sale-repository.js';
 import productVariantRepository from '../product-variant/product-variant-repository.js';
 import saleSettingService from '../sale-settings/sale-setting-service.js';
 import purchaseBacklogRepository from '../purchase-backlog/purchase-backlog-repository.js';
-import * as accountsReceivableService from '../account-receivable/acount-receivable-service.js';
+import accountsReceivableService from '../account-receivable/acount-receivable-service.js';
 
 class SaleService {
   async createSale(saleData) {
