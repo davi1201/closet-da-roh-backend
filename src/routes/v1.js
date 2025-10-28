@@ -13,6 +13,7 @@ import availabilityRoutes from '../modules/availability/availability-routes.js';
 import productInteractionRoutes from '../modules/product-interation/product-interaction-routes.js';
 import dashboardRoutes from '../modules/dashboard/dashboard-routes.js';
 import usersRoutes from '../modules/users/user-routes.js';
+import accountsReceivableRoutes from '../modules/account-receivable/account-receivable-routes.js';
 
 const router = Router();
 
@@ -29,5 +30,6 @@ router.use('/availability', availabilityRoutes);
 router.use('/product-interactions', productInteractionRoutes);
 router.use('/admin/dashboard', dashboardRoutes);
 router.use('/users', usersRoutes);
+router.use('/accounts-receivable', accountsReceivableRoutes);
 
 export const v1Routes = router;

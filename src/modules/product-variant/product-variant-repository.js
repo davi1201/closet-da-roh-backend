@@ -36,7 +36,6 @@ const updatePricesAndLogHistory = async (
   newBuyPrice,
   newSalePrice
 ) => {
-  // Agora a lógica de preço se aplica à VARIAÇÃO, não ao Produto Pai.
   const variant = await ProductVariant.findById(variantId);
 
   if (!variant) {
@@ -50,14 +49,12 @@ const updatePricesAndLogHistory = async (
     return variant;
   }
 
-  // 1. Cria o novo registro de histórico usando os VALORES ANTIGOS
   const newHistoryEntry = {
     buyPrice: oldBuyPrice,
     salePrice: oldSalePrice,
     changedAt: new Date(),
   };
 
-  // 2. Usa o Mongoose para $push o histórico e $set os novos preços
   const updatedVariant = await ProductVariant.findByIdAndUpdate(
     variantId,
     {
@@ -81,9 +78,6 @@ const updateStockBatch = async (stockUpdates) => {
   const operations = stockUpdates.map((update) => ({
     updateOne: {
       filter: { _id: update.variantId },
-      // Usa $inc para decrementar ou incrementar o campo 'quantity' (estoque)
-      // Se a operação for 'decrement', o valor será negativo (-update.quantity)
-      // Se a operação for 'increment', o valor será positivo (+update.quantity)
       update: {
         $inc: {
           quantity:
@@ -96,7 +90,6 @@ const updateStockBatch = async (stockUpdates) => {
   }));
 
   try {
-    // Executa as operações em lote
     const result = await ProductVariant.bulkWrite(operations);
     return result;
   } catch (error) {
@@ -109,45 +102,206 @@ const updateStockBatch = async (stockUpdates) => {
 
 const countLowStock = async () => {
   return await ProductVariant.countDocuments({
-    // $expr permite comparar dois campos do mesmo documento
     $expr: { $lte: ['$quantity', '$minimum_stock'] },
   });
 };
 
+/**
+ * MÉTODO CORRIGIDO: Calcula valores de inventário com os campos corretos
+ * Considera:
+ * - buy_price (custo de compra)
+ * - sale_price (preço de venda)
+ * - quantity (quantidade em estoque)
+ * - Apenas variantes com estoque > 0
+ */
 const calculateInventoryValue = async () => {
-  const result = await ProductVariant.aggregate([
-    // 1. Filtrar variantes que estão em estoque
-    {
-      $match: {
-        quantity: { $gt: 0 },
+  try {
+    const result = await ProductVariant.aggregate([
+      // 1. Filtra apenas variantes com estoque disponível
+      {
+        $match: {
+          quantity: { $gt: 0 },
+        },
       },
-    },
-    // 2. Calcular o valor de custo e venda para cada variante
-    {
-      $project: {
-        costValue: { $multiply: ['$buy_price', '$quantity'] },
-        saleValue: { $multiply: ['$sale_price', '$quantity'] },
-      },
-    },
-    // 3. Agrupar TUDO e somar os valores calculados
-    {
-      $group: {
-        _id: null, // Agrupa todos os documentos em um único grupo
-        totalCost: { $sum: '$costValue' },
-        totalSaleValue: { $sum: '$saleValue' },
-      },
-    },
-  ]);
 
-  // O resultado da agregação é um array com um objeto (ou vazio se não houver estoque)
-  if (result.length > 0) {
+      // 2. Calcula os valores para cada variante
+      {
+        $project: {
+          // Custo total = preço de compra × quantidade
+          costValue: {
+            $multiply: [
+              { $ifNull: ['$buy_price', 0] }, // Usa 0 se buy_price for null/undefined
+              { $ifNull: ['$quantity', 0] },
+            ],
+          },
+          // Valor de venda total = preço de venda × quantidade
+          saleValue: {
+            $multiply: [
+              { $ifNull: ['$sale_price', 0] }, // Usa 0 se sale_price for null/undefined
+              { $ifNull: ['$quantity', 0] },
+            ],
+          },
+          quantity: 1, // Mantém o campo quantity para contar
+        },
+      },
+
+      // 3. Agrupa tudo e soma os valores
+      {
+        $group: {
+          _id: null,
+          totalCost: { $sum: '$costValue' },
+          totalSaleValue: { $sum: '$saleValue' },
+          totalVariants: { $sum: 1 },
+          totalStockQuantity: { $sum: '$quantity' },
+        },
+      },
+
+      // 4. Formata o resultado final com arredondamento
+      {
+        $project: {
+          _id: 0,
+          totalCost: { $round: ['$totalCost', 2] },
+          totalSaleValue: { $round: ['$totalSaleValue', 2] },
+          totalVariants: 1,
+          totalStockQuantity: 1,
+          // Calcula lucro estimado
+          estimatedProfit: {
+            $round: [{ $subtract: ['$totalSaleValue', '$totalCost'] }, 2],
+          },
+          // Calcula margem de lucro percentual
+          profitMargin: {
+            $cond: {
+              if: { $gt: ['$totalSaleValue', 0] },
+              then: {
+                $round: [
+                  {
+                    $multiply: [
+                      {
+                        $divide: [
+                          { $subtract: ['$totalSaleValue', '$totalCost'] },
+                          '$totalSaleValue',
+                        ],
+                      },
+                      100,
+                    ],
+                  },
+                  2,
+                ],
+              },
+              else: 0,
+            },
+          },
+        },
+      },
+    ]);
+
+    // Retorna o resultado ou valores padrão se não houver estoque
+    if (result.length > 0) {
+      return result[0];
+    } else {
+      return {
+        totalCost: 0,
+        totalSaleValue: 0,
+        totalVariants: 0,
+        totalStockQuantity: 0,
+        estimatedProfit: 0,
+        profitMargin: 0,
+      };
+    }
+  } catch (error) {
+    console.error('Erro ao calcular valores de inventário:', error);
+    // Em caso de erro, retorna valores zerados ao invés de quebrar
     return {
-      totalCost: result[0].totalCost || 0,
-      totalSaleValue: result[0].totalSaleValue || 0,
+      totalCost: 0,
+      totalSaleValue: 0,
+      totalVariants: 0,
+      totalStockQuantity: 0,
+      estimatedProfit: 0,
+      profitMargin: 0,
     };
-  } else {
-    // Se não houver estoque, retorna zero
-    return { totalCost: 0, totalSaleValue: 0 };
+  }
+};
+
+/**
+ * NOVO MÉTODO: Busca variantes com estoque baixo (para alertas no dashboard)
+ */
+const findLowStock = async (limit = 10) => {
+  try {
+    return await ProductVariant.find({
+      $expr: { $lte: ['$quantity', '$minimum_stock'] },
+      quantity: { $gt: 0 }, // Apenas produtos que ainda têm estoque
+    })
+      .populate('product', 'name category images')
+      .sort({ quantity: 1 }) // Ordena do menor para o maior estoque
+      .limit(limit)
+      .lean();
+  } catch (error) {
+    console.error('Erro ao buscar produtos com estoque baixo:', error);
+    return [];
+  }
+};
+
+/**
+ * NOVO MÉTODO: Estatísticas detalhadas de inventário por produto
+ */
+const getInventoryStatsByProduct = async () => {
+  try {
+    return await ProductVariant.aggregate([
+      {
+        $match: {
+          quantity: { $gt: 0 },
+        },
+      },
+      {
+        $lookup: {
+          from: 'products',
+          localField: 'product',
+          foreignField: '_id',
+          as: 'productInfo',
+        },
+      },
+      {
+        $unwind: {
+          path: '$productInfo',
+          preserveNullAndEmptyArrays: true,
+        },
+      },
+      {
+        $group: {
+          _id: '$product',
+          productName: { $first: '$productInfo.name' },
+          totalVariants: { $sum: 1 },
+          totalQuantity: { $sum: '$quantity' },
+          totalCost: {
+            $sum: { $multiply: ['$buy_price', '$quantity'] },
+          },
+          totalSaleValue: {
+            $sum: { $multiply: ['$sale_price', '$quantity'] },
+          },
+        },
+      },
+      {
+        $project: {
+          productName: 1,
+          totalVariants: 1,
+          totalQuantity: 1,
+          totalCost: { $round: ['$totalCost', 2] },
+          totalSaleValue: { $round: ['$totalSaleValue', 2] },
+          estimatedProfit: {
+            $round: [{ $subtract: ['$totalSaleValue', '$totalCost'] }, 2],
+          },
+        },
+      },
+      {
+        $sort: { totalSaleValue: -1 }, // Ordena por valor de venda (maior primeiro)
+      },
+    ]);
+  } catch (error) {
+    console.error(
+      'Erro ao buscar estatísticas de inventário por produto:',
+      error
+    );
+    return [];
   }
 };
 
@@ -160,5 +314,7 @@ export default {
   removeVariant,
   updatePricesAndLogHistory,
   countLowStock,
-  calculateInventoryValue,
+  calculateInventoryValue, // MÉTODO CORRIGIDO
+  findLowStock, // NOVO
+  getInventoryStatsByProduct, // NOVO
 };

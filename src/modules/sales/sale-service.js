@@ -1,7 +1,8 @@
 import saleRepository from './sale-repository.js';
 import productVariantRepository from '../product-variant/product-variant-repository.js';
 import saleSettingService from '../sale-settings/sale-setting-service.js';
-import purchaseBacklogRepository from '../purchase-backlog/purchase-backlog-repository.js'; // Importar o novo repositório
+import purchaseBacklogRepository from '../purchase-backlog/purchase-backlog-repository.js';
+import * as accountsReceivableService from '../account-receivable/acount-receivable-service.js';
 
 class SaleService {
   async createSale(saleData) {
@@ -24,8 +25,8 @@ class SaleService {
     let totalSubtotal = 0;
     const processedItems = [];
     const stockUpdates = [];
-    const backlogCreations = []; // Lista para criar pendências de compra
-    let hasPendingStock = false; // Flag para controlar o status da venda
+    const backlogCreations = [];
+    let hasPendingStock = false;
 
     for (const item of items) {
       const variant = variantMap.get(item.variant_id);
@@ -36,20 +37,15 @@ class SaleService {
 
       let itemFulfillmentStatus;
 
-      // Lógica de Backorder: Vender mesmo sem estoque
       if (variant.quantity >= item.quantity) {
-        // CASO 1: Tem estoque
         itemFulfillmentStatus = 'fulfilled';
       } else {
-        // CASO 2: Não tem estoque (Backorder)
         itemFulfillmentStatus = 'pending_stock';
         hasPendingStock = true;
 
-        // Adiciona na lista para criar a pendência de compra
         backlogCreations.push({
           product_variant: variant._id,
           quantity_needed: item.quantity,
-          // source_sale e source_sale_item serão adicionados após a venda ser salva
         });
       }
 
@@ -62,10 +58,9 @@ class SaleService {
         quantity: item.quantity,
         unit_sale_price: variant.sale_price,
         subtotal: subtotal,
-        fulfillment_status: itemFulfillmentStatus, // Adiciona o status do item
+        fulfillment_status: itemFulfillmentStatus,
       });
 
-      // Abater o estoque (permitindo que fique negativo)
       stockUpdates.push({
         variantId: variant._id,
         quantity: item.quantity,
@@ -86,9 +81,6 @@ class SaleService {
       payment: payment_details,
     });
 
-    // Definir os novos status da Venda
-    // (Assumindo que o pagamento é processado no ato da criação)
-    // TODO: Ajustar `payment_status` se houver métodos como 'boleto'
     const paymentStatus = 'paid';
     const fulfillmentStatus = hasPendingStock
       ? 'awaiting_stock'
@@ -115,10 +107,10 @@ class SaleService {
 
     const newSale = await saleRepository.create(finalSaleData);
 
-    // Criar as pendências de compra (backlogs) agora que temos o ID da Venda
+    await accountsReceivableService.generateReceivablesForSale(newSale);
+
     if (backlogCreations.length > 0) {
       const backlogPromises = backlogCreations.map((backlog) => {
-        // Encontrar o _id do sub-documento 'item' correspondente
         const savedSaleItem = newSale.items.find(
           (i) =>
             i.variant.toString() === backlog.product_variant.toString() &&
@@ -128,18 +120,17 @@ class SaleService {
         return purchaseBacklogRepository.create({
           ...backlog,
           source_sale: newSale._id,
-          source_sale_item: savedSaleItem._id, // Link para o sub-documento
+          source_sale_item: savedSaleItem._id,
         });
       });
       await Promise.all(backlogPromises);
     }
 
-    // Atualizar o estoque (tornando-o negativo se necessário)
     await productVariantRepository.updateStockBatch(stockUpdates);
 
     return newSale;
   }
-  // -----------------------------------------------------------------------------
+
   _calculateFinalAmount({ subtotal, settings, payment }) {
     const clientDiscountPercentage = payment.discount_percentage || 0;
 
@@ -221,11 +212,10 @@ class SaleService {
       interestAmount: parseFloat(interestAmount.toFixed(2)),
       discountApplied: parseFloat(totalDiscountApplied.toFixed(2)),
       discountPercentage: parseFloat(totalDiscountPercentage.toFixed(2)),
-      interestRate: interestRate, // Já está na forma de porcentagem (ex: 5.70)
+      interestRate: interestRate,
     };
   }
 
-  // -----------------------------------------------------------------------------
   _calculateRepassedInterest(principal, interestRatePercentage) {
     if (interestRatePercentage <= 0) {
       return {
@@ -245,7 +235,7 @@ class SaleService {
       interestRate: interestRatePercentage,
     };
   }
-  // -----------------------------------------------------------------------------
+
   _findBestInstallmentRule(rules, amount) {
     const ruleList = rules || [];
     let bestRule = null;
@@ -301,7 +291,6 @@ class SaleService {
   }
 
   async getAllSales(fulfillment_status) {
-    // Alterado para filtrar pelo novo status de atendimento
     return await saleRepository.findAll(fulfillment_status);
   }
 }
