@@ -18,7 +18,7 @@ const DesiredProductSchema = new mongoose.Schema(
     // ALTERAÇÃO AQUI:
     images: {
       type: [ImageSchema], // Mude de 'String' para um array de 'ImageSchema'
-      required: true,
+      required: false,
     },
     description: {
       type: String,
