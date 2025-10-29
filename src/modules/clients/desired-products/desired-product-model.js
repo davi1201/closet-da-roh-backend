@@ -1,30 +1,32 @@
 // models/DesiredProduct.ts
-import mongoose, { Schema } from 'mongoose';
 
-const DesiredProductSchema = new Schema(
+import mongoose from 'mongoose';
+
+const ImageSchema = new mongoose.Schema({
+  url: { type: String, required: true },
+  key: { type: String, required: true },
+});
+
+const DesiredProductSchema = new mongoose.Schema(
   {
     client: {
-      type: Schema.Types.ObjectId,
-      ref: 'Client', // Referência ao cliente
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Client',
       required: true,
       index: true,
     },
-    photoUrl: {
-      type: String,
+    // ALTERAÇÃO AQUI:
+    images: {
+      type: [ImageSchema], // Mude de 'String' para um array de 'ImageSchema'
       required: true,
     },
     description: {
       type: String,
     },
-    // O 'additionDate' é substituído pelo 'timestamps: true'
   },
   {
-    timestamps: true, // Adiciona createdAt (para saber a data) e updatedAt
+    timestamps: true,
   }
 );
 
-const DesiredProduct =
-  mongoose.models.DesiredProduct ||
-  mongoose.model('DesiredProduct', DesiredProductSchema);
-
-export default DesiredProduct;
+export default mongoose.model('DesiredProduct', DesiredProductSchema);

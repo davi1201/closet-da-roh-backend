@@ -8,7 +8,7 @@ import {
 } from './product-controller.js';
 
 import {
-  optimizeImagesMiddleware,
+  createOptimizeImagesMiddleware,
   s3UploadMiddleware,
 } from '../../middleware/s3-upload-middleware.js';
 
@@ -19,14 +19,14 @@ router.get('/', handleGetAllProducts);
 router.post(
   '/',
   s3UploadMiddleware.array('images', 5),
-  optimizeImagesMiddleware,
+  createOptimizeImagesMiddleware(),
   handleAddNewProduct
 );
 
 router.put(
   '/:id',
   s3UploadMiddleware.array('images', 5),
-  optimizeImagesMiddleware,
+  createOptimizeImagesMiddleware(),
   handleUpdateProduct
 );
 

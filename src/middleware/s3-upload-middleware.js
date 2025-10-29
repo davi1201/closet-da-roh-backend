@@ -13,8 +13,8 @@ const s3Client = new S3Client({
 });
 const BUCKET_NAME = process.env.API_AWS_BUCKET_NAME;
 
-// --- ETAPA 1: Middleware do Multer (para MemoryStorage) ---
-// Isso apenas coloca o(s) arquivo(s) em req.files
+// --- ETAPA 1: Middleware do Multer (MemoryStorage) ---
+// (Sem alterações, continua igual)
 export const s3UploadMiddleware = multer({
   storage: multer.memoryStorage(), // Salva o arquivo na RAM (req.files[...].buffer)
   limits: { fileSize: 5 * 1024 * 1024 }, // Limite de 5MB
@@ -23,13 +23,15 @@ export const s3UploadMiddleware = multer({
 // --- ETAPA 2: Middleware de Otimização e Upload ---
 
 /**
- * Função auxiliar para processar e enviar um único arquivo
+ * Função auxiliar para processar e enviar um único arquivo.
+ * Agora recebe o 'folderName' como parâmetro.
  */
-const optimizeAndUpload = async (file) => {
+const optimizeAndUpload = async (file, folderName) => {
   // Pega o nome do arquivo sem a extensão
   const originalName = file.originalname.split('.').slice(0, -1).join('_');
-  // Define a nova chave com extensão .webp
-  const newKey = `product-images/${Date.now()}-${originalName.replace(
+
+  // Define a nova chave com a pasta dinâmica e extensão .webp
+  const newKey = `${folderName}/${Date.now()}-${originalName.replace(
     / /g,
     '_'
   )}.webp`;
@@ -61,41 +63,58 @@ const optimizeAndUpload = async (file) => {
 };
 
 /**
- * O middleware que será usado na rota.
- * Ele espera que 'req.files' (array) ou 'req.files.images' (objeto) exista.
+ * Factory Function (Função de Fábrica) que CRIA o middleware de otimização.
+ * Isso nos permite passar parâmetros (como 'folderName') ao usá-lo na rota.
+ *
+ * @param {string} [folderName='product-images'] - A pasta no S3 onde salvar as imagens.
  */
-export const optimizeImagesMiddleware = async (req, res, next) => {
-  if (!req.files) {
-    return next(); // Nenhum arquivo para processar, pula
-  }
+export const createOptimizeImagesMiddleware = (
+  folderName = 'product-images'
+) => {
+  // Retorna o middleware real que o Express usará
+  return async (req, res, next) => {
+    if (!req.files) {
+      return next(); // Nenhum arquivo para processar, pula
+    }
 
-  let filesToProcess = [];
+    let filesToProcess = [];
 
-  // Ajusta se você usa .array('images') [req.files]
-  // ou .fields([{ name: 'images' }]) [req.files.images]
-  if (Array.isArray(req.files)) {
-    filesToProcess = req.files;
-  } else if (req.files.images) {
-    filesToProcess = req.files.images;
-  }
+    // Ajusta se você usa .array('images') [req.files]
+    // ou .fields([{ name: 'images' }]) [req.files.images]
+    if (Array.isArray(req.files)) {
+      filesToProcess = req.files;
+    } else if (req.files.images) {
+      filesToProcess = req.files.images;
+    }
+    // Suporte para .single('avatar') [req.file]
+    else if (req.file) {
+      filesToProcess = [req.file];
+    }
 
-  if (filesToProcess.length === 0) {
-    return next(); // Nenhum arquivo no campo 'images', pula
-  }
+    if (filesToProcess.length === 0) {
+      return next(); // Nenhum arquivo, pula
+    }
 
-  try {
-    // Processa todos os arquivos em paralelo
-    const processedImages = await Promise.all(
-      filesToProcess.map((file) => optimizeAndUpload(file))
-    );
+    try {
+      // Processa todos os arquivos em paralelo, passando o 'folderName'
+      // que está no escopo desta função (closure)
+      const processedImages = await Promise.all(
+        filesToProcess.map((file) => optimizeAndUpload(file, folderName))
+      );
 
-    // Salva os dados das imagens otimizadas em req.body
-    // (O controller vai ler daqui)
-    req.body.images = processedImages;
+      // Salva os dados das imagens otimizadas em req.body
+      // (O controller vai ler daqui)
+      // Se foi 'single', talvez seja melhor salvar em req.body.image (singular)
+      if (req.file) {
+        req.body.image = processedImages[0]; // Salva o objeto único
+      } else {
+        req.body.images = processedImages; // Salva o array
+      }
 
-    next();
-  } catch (error) {
-    console.error('Erro ao otimizar ou enviar imagens:', error);
-    next(error);
-  }
+      next();
+    } catch (error) {
+      console.error('Erro ao otimizar ou enviar imagens:', error);
+      next(error);
+    }
+  };
 };
