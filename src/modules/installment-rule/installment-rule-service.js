@@ -88,16 +88,14 @@ class InstallmentService {
         if (repassInterest && originalInterestRate > 0) {
           const rateDecimal = originalInterestRate / 100;
 
-          // Juros compostos aplicados sobre o total
-          totalValue =
-            purchaseValue * Math.pow(1 + rateDecimal, numInstallments);
-          installmentValue = totalValue / numInstallments;
+          totalValue = purchaseValue / (1 - rateDecimal);
+          installmentValue = totalValue / numInstallments; // <-- CORREÇÃO: Faltava esta linha
 
           description = `${numInstallments}x de ${formatCurrency(
             installmentValue
           )} (Total ${formatCurrency(
             totalValue
-          )} com ${originalInterestRate}% de juros)`;
+          )} com ${originalInterestRate}%)`;
         }
 
         // 🔹 CASO SEM JUROS (ou ignorando juros)
