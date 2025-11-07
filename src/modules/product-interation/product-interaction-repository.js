@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import ProductInteraction from './product-interation-model.js'; // Verifique se este caminho para o 'model' está correto
 
 class ProductInteractionRepository {
@@ -35,12 +36,37 @@ class ProductInteractionRepository {
   }
 
   async findLikesByClient(clientId) {
-    return await ProductInteraction.find({
-      client: clientId,
-      interaction: 'liked',
-    })
-      .populate('product')
-      .lean();
+    return await ProductInteraction.aggregate([
+      // 1. Encontra as interações (igual ao seu .find())
+      {
+        $match: {
+          client: new mongoose.Types.ObjectId(clientId), // Converte a string ID para ObjectId
+          interaction: 'liked',
+        },
+      },
+      // 2. Popula o 'product' (igual ao .populate('product'))
+      {
+        $lookup: {
+          from: 'products', // O nome da *coleção* de produtos no MongoDB (geralmente plural)
+          localField: 'product',
+          foreignField: '_id',
+          as: 'product',
+        },
+      },
+      // 3. O $lookup acima retorna 'product' como um array, então o $unwind o transforma em objeto
+      {
+        $unwind: '$product',
+      },
+      // 4. A MÁGICA: Popula as 'variants' dentro do 'product'
+      {
+        $lookup: {
+          from: 'productvariants', // O nome da *coleção* de variantes
+          localField: 'product._id', // O _id do produto que acabamos de popular
+          foreignField: 'product', // O campo 'product' no schema ProductVariant
+          as: 'product.variants', // Anexa o resultado como 'product.variants'
+        },
+      },
+    ]);
   }
 
   async findLikedProductIdsByClient(clientId) {

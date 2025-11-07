@@ -3,14 +3,14 @@ import {
   getProductsForClient,
   createInteraction,
   deleteInteraction,
-} from './product-interaction-controller.js'; // Ajuste o caminho
+  getLikedProductsByClient,
+} from './product-interaction-controller.js';
 
 const router = express.Router();
 
-// Rota para o "Tinder" de Produtos (GET /api/public/products-for-liking/:clientId)
 router.get('/products-for-liking/:clientId', getProductsForClient);
+router.get('/liked-products/:clientId', getLikedProductsByClient);
 
-// Rota para registrar o like/dislike (POST /api/public/product-interactions)
 router.post('/', createInteraction);
 router.delete('/', deleteInteraction);
 

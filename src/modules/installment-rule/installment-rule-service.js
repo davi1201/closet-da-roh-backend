@@ -6,7 +6,6 @@ class InstallmentService {
   async addInstallmentRule(ruleData) {
     const { min_purchase_value, rules } = ruleData;
 
-    // 1. Validação de campos principais
     if (min_purchase_value === undefined || min_purchase_value < 0) {
       throw new Error(
         'Valor mínimo de compra é obrigatório e não pode ser negativo.'
@@ -17,7 +16,6 @@ class InstallmentService {
       throw new Error('É necessário fornecer pelo menos uma opção de parcela.');
     }
 
-    // 2. Lógica de Negócio: Verificar duplicatas
     const existingRule = await installmentRuleRepository.findApplicableRule(
       min_purchase_value
     );
@@ -28,7 +26,6 @@ class InstallmentService {
       );
     }
 
-    // 3. (Opcional) Validação interna das regras (o Mongoose já faz, mas é bom)
     for (const rule of rules) {
       if (!rule.installments || rule.installments < 1) {
         throw new Error(
@@ -37,7 +34,6 @@ class InstallmentService {
       }
     }
 
-    // 4. Chamar o Repositório para criar
     return await installmentRuleRepository.create(ruleData);
   }
 
@@ -54,7 +50,7 @@ class InstallmentService {
     return bestRule;
   }
 
-  async getPaymentConditions(purchaseValue) {
+  async getPaymentConditions(purchaseValue, repassInterest = true) {
     if (typeof purchaseValue !== 'number' || purchaseValue <= 0) {
       throw new Error('O valor da compra deve ser um número positivo.');
     }
@@ -65,6 +61,7 @@ class InstallmentService {
       purchaseValue
     );
 
+    // Caso não exista nenhuma regra aplicável
     if (!rule) {
       return [
         {
@@ -80,45 +77,48 @@ class InstallmentService {
     const paymentConditions = rule.rules
       .map((installmentRule) => {
         const numInstallments = installmentRule.installments;
-        const interestRate = installmentRule.interest_rate_percentage;
-        const rateDecimal = interestRate / 100;
+        const originalInterestRate =
+          installmentRule.interest_rate_percentage || 0;
 
         let totalValue;
         let installmentValue;
         let description;
 
-        if (interestRate > 0) {
-          // LÓGICA: CÁLCULO DE REPASSE DE TAXA ÚNICA
+        // 🔹 CASO COM JUROS (somente se repassInterest for true)
+        if (repassInterest && originalInterestRate > 0) {
+          const rateDecimal = originalInterestRate / 100;
 
-          const principalWithoutFee = purchaseValue / (1 - rateDecimal);
-          const installmentWithoutFee = principalWithoutFee / numInstallments;
-
-          installmentValue = installmentWithoutFee;
-          totalValue = installmentValue * numInstallments;
+          // Juros compostos aplicados sobre o total
+          totalValue =
+            purchaseValue * Math.pow(1 + rateDecimal, numInstallments);
+          installmentValue = totalValue / numInstallments;
 
           description = `${numInstallments}x de ${formatCurrency(
             installmentValue
-          )} (Total ${formatCurrency(totalValue)} com ${interestRate}%)`;
-        } else if (numInstallments === 1) {
-          totalValue = purchaseValue;
-          installmentValue = purchaseValue;
-          description = 'À Vista';
-        } else {
-          // Parcelas sem juros (Taxa = 0)
+          )} (Total ${formatCurrency(
+            totalValue
+          )} com ${originalInterestRate}% de juros)`;
+        }
+
+        // 🔹 CASO SEM JUROS (ou ignorando juros)
+        else {
           installmentValue = purchaseValue / numInstallments;
-          totalValue = installmentValue * numInstallments;
+          totalValue = purchaseValue;
 
-          description = `${numInstallments}x de ${formatCurrency(
-            installmentValue
-          )} Sem Juros`;
+          description =
+            numInstallments === 1
+              ? 'À Vista'
+              : `${numInstallments}x de ${formatCurrency(
+                  installmentValue
+                )} Sem Juros`;
         }
 
         return {
           installments: numInstallments,
           value: parseFloat(installmentValue.toFixed(2)),
           total_value: parseFloat(totalValue.toFixed(2)),
-          description: description,
-          interest_rate: interestRate,
+          description,
+          interest_rate: originalInterestRate,
         };
       })
       .filter((condition) => condition.value >= 1);

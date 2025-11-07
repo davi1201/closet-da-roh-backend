@@ -13,6 +13,7 @@ class AppointmentRepository {
       startTime: { $gte: startDate, $lte: endDate },
     })
       .sort({ startTime: 1 })
+      .populate('client', 'name') // Popula dados básicos do cliente
       .lean();
   }
 

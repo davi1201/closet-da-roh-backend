@@ -46,6 +46,10 @@ class PurchaseBacklogRepository {
       new: true,
     });
   }
+
+  async deleteBySaleId(saleId) {
+    return PurchaseBacklog.deleteMany({ source_sale: saleId });
+  }
 }
 
 export default new PurchaseBacklogRepository();

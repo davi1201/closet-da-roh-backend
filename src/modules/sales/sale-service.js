@@ -6,10 +6,20 @@ import accountsReceivableService from '../account-receivable/acount-receivable-s
 
 class SaleService {
   async createSale(saleData) {
-    const { customer_id, items, payment_details, sold_by } = saleData;
+    const {
+      customer_id,
+      items,
+      payments,
+      sold_by,
+      due_date,
+      discount_percentage,
+    } = saleData;
 
     if (!items || items.length === 0) {
       throw new Error('A venda deve conter pelo menos um item.');
+    }
+    if (!payments || payments.length === 0) {
+      throw new Error('A venda deve conter pelo menos um método de pagamento.');
     }
 
     const [settings, variantIds] = await Promise.all([
@@ -68,17 +78,11 @@ class SaleService {
       });
     }
 
-    const {
-      netSaleAmount,
-      finalAmount,
-      interestAmount,
-      discountApplied,
-      discountPercentage,
-      interestRate,
-    } = this._calculateFinalAmount({
+    const paymentResult = this._calculatePayments({
       subtotal: totalSubtotal,
       settings: settings,
-      payment: payment_details,
+      clientDiscountPercentage: discount_percentage || 0,
+      paymentIntents: payments,
     });
 
     const paymentStatus = 'paid';
@@ -91,23 +95,19 @@ class SaleService {
       sold_by: sold_by,
       items: processedItems,
       subtotal_amount: totalSubtotal,
-
-      payment_details: {
-        method: payment_details.method,
-        installments: payment_details.installments || 1,
-        interest_rate_percentage: interestRate,
-        discount_amount: discountApplied,
-        amount_paid: finalAmount,
-      },
-
-      total_amount: finalAmount,
+      discount_amount: paymentResult.discount_amount,
+      payments: paymentResult.processedPayments,
+      total_amount: paymentResult.total_amount,
       payment_status: paymentStatus,
       fulfillment_status: fulfillmentStatus,
     };
 
     const newSale = await saleRepository.create(finalSaleData);
 
-    await accountsReceivableService.generateReceivablesForSale(newSale);
+    await accountsReceivableService.generateReceivablesForSale(
+      newSale,
+      due_date
+    );
 
     if (backlogCreations.length > 0) {
       const backlogPromises = backlogCreations.map((backlog) => {
@@ -131,9 +131,12 @@ class SaleService {
     return newSale;
   }
 
-  _calculateFinalAmount({ subtotal, settings, payment }) {
-    const clientDiscountPercentage = payment.discount_percentage || 0;
-
+  _calculatePayments({
+    subtotal,
+    settings,
+    clientDiscountPercentage,
+    paymentIntents,
+  }) {
     const safeClientPercentage =
       clientDiscountPercentage > 100
         ? 100
@@ -142,77 +145,143 @@ class SaleService {
         : clientDiscountPercentage;
     const clientDiscountAmount = (subtotal * safeClientPercentage) / 100;
 
-    const paymentMethod = settings.payment_methods.find(
-      (pm) => pm.key === payment.method
-    );
+    let methodDiscountAmount = 0;
+    const isSplit = paymentIntents.length > 1;
+    const repassInterest = !isSplit;
 
-    if (!paymentMethod || !paymentMethod.is_active) {
-      throw new Error(
-        `Forma de pagamento '${payment.method}' não é válida ou está inativa.`
+    if (!isSplit) {
+      const paymentMethodKey = paymentIntents[0].method;
+      const paymentMethod = settings.payment_methods.find(
+        (pm) => pm.key === paymentMethodKey
       );
+      if (!paymentMethod || !paymentMethod.is_active) {
+        throw new Error(
+          `Forma de pagamento '${paymentMethodKey}' não é válida ou está inativa.`
+        );
+      }
+      methodDiscountAmount =
+        (subtotal * (paymentMethod.discount_percentage || 0)) / 100;
     }
 
-    const methodDiscountRate = paymentMethod.discount_percentage / 100;
-    const methodDiscountAmount = subtotal * methodDiscountRate;
-
-    let totalDiscountApplied = methodDiscountAmount + clientDiscountAmount;
-
-    let netSaleAmount = subtotal - totalDiscountApplied;
-    let finalAmountWithInterest = netSaleAmount;
-    let interestRate = 0;
-    let interestAmount = 0;
-
-    let totalDiscountPercentage = 0;
-    if (subtotal > 0) {
-      totalDiscountPercentage = (totalDiscountApplied / subtotal) * 100;
-    }
-
-    if (netSaleAmount < 0) {
-      netSaleAmount = 0;
-      finalAmountWithInterest = 0;
+    let totalDiscountApplied = clientDiscountAmount + methodDiscountAmount;
+    if (totalDiscountApplied > subtotal) {
       totalDiscountApplied = subtotal;
-      totalDiscountPercentage = 100;
     }
+    const netSaleAmount = subtotal - totalDiscountApplied;
 
-    if (payment.method === 'card' || payment.method === 'credit') {
-      const installmentRule = this._findBestInstallmentRule(
-        settings.installment_rules,
+    const processedPayments = [];
+    let totalFinalAmount = 0;
+
+    if (isSplit) {
+      const entryPayment = paymentIntents.find((p) => p.amount);
+      const installmentPayment = paymentIntents.find((p) => !p.amount);
+
+      if (!entryPayment || !installmentPayment) {
+        throw new Error(
+          'Pagamento dividido (split) mal formatado. Requer uma entrada com "amount" e um parcelamento sem "amount".'
+        );
+      }
+
+      const entryAmount = entryPayment.amount;
+      if (entryAmount >= netSaleAmount) {
+        throw new Error(
+          'O valor da entrada não pode ser maior ou igual ao valor líquido da venda.'
+        );
+      }
+      const remainderAmount = netSaleAmount - entryAmount;
+
+      processedPayments.push({
+        method: entryPayment.method,
+        amount: parseFloat(entryAmount.toFixed(2)),
+        installments: 1,
+        interest_rate_percentage: 0,
+      });
+      totalFinalAmount += entryAmount;
+
+      const installmentResult = this._calculateInstallmentInterest(
+        settings,
+        installmentPayment.method,
+        installmentPayment.installments,
+        remainderAmount,
+        repassInterest
+      );
+
+      processedPayments.push({
+        method: installmentPayment.method,
+        amount: parseFloat(installmentResult.finalAmount.toFixed(2)),
+        installments: installmentPayment.installments,
+        interest_rate_percentage: installmentResult.interestRate,
+      });
+      totalFinalAmount += installmentResult.finalAmount;
+    } else {
+      const payment = paymentIntents[0];
+      const installmentResult = this._calculateInstallmentInterest(
+        settings,
+        payment.method,
+        payment.installments,
         netSaleAmount
       );
 
-      if (installmentRule) {
-        const ruleDetail = installmentRule.rules.find(
-          (r) => r.installments === payment.installments
-        );
-
-        if (!ruleDetail) {
-          throw new Error(
-            `Parcelamento em ${payment.installments}x não permitido para esta compra.`
-          );
-        }
-
-        const calculatedValues = this._calculateRepassedInterest(
-          netSaleAmount,
-          ruleDetail.interest_rate_percentage
-        );
-
-        finalAmountWithInterest = calculatedValues.totalValue;
-        interestAmount = calculatedValues.interestAmount;
-        interestRate = calculatedValues.interestRate;
-      } else {
-        throw new Error(
-          'Erro de configuração: Regra de parcelamento não encontrada.'
-        );
-      }
+      processedPayments.push({
+        method: payment.method,
+        amount: parseFloat(installmentResult.finalAmount.toFixed(2)),
+        installments: payment.installments,
+        interest_rate_percentage: installmentResult.interestRate,
+      });
+      totalFinalAmount = installmentResult.finalAmount;
     }
 
     return {
-      netSaleAmount: parseFloat(netSaleAmount.toFixed(2)),
-      finalAmount: parseFloat(finalAmountWithInterest.toFixed(2)),
-      interestAmount: parseFloat(interestAmount.toFixed(2)),
-      discountApplied: parseFloat(totalDiscountApplied.toFixed(2)),
-      discountPercentage: parseFloat(totalDiscountPercentage.toFixed(2)),
-      interestRate: interestRate,
+      processedPayments: processedPayments,
+      total_amount: parseFloat(totalFinalAmount.toFixed(2)),
+      discount_amount: parseFloat(totalDiscountApplied.toFixed(2)),
+    };
+  }
+
+  _calculateInstallmentInterest(
+    settings,
+    method,
+    installments,
+    amount,
+    repassInterest = true
+  ) {
+    if (method !== 'card' && method !== 'credit') {
+      return { finalAmount: amount, interestAmount: 0, interestRate: 0 };
+    }
+
+    const installmentRule = this._findBestInstallmentRule(
+      settings.installment_rules,
+      amount
+    );
+
+    if (!installmentRule) {
+      throw new Error(
+        'Erro de configuração: Regra de parcelamento não encontrada.'
+      );
+    }
+
+    const ruleDetail = installmentRule.rules.find(
+      (r) => r.installments === installments
+    );
+
+    if (!ruleDetail) {
+      throw new Error(
+        `Parcelamento em ${installments}x não permitido para esta compra.`
+      );
+    }
+
+    const originalInterestRate = ruleDetail.interest_rate_percentage;
+    const effectiveInterestRate = repassInterest ? originalInterestRate : 0;
+
+    const calculatedValues = this._calculateRepassedInterest(
+      amount,
+      effectiveInterestRate
+    );
+
+    return {
+      finalAmount: calculatedValues.totalValue,
+      interestAmount: calculatedValues.interestAmount,
+      interestRate: originalInterestRate,
     };
   }
 
@@ -258,9 +327,9 @@ class SaleService {
   }
 
   async getDashboardSummary() {
-    const summary = await saleRepository.getSalesSummary();
+    const data = await saleRepository.getSalesSummary();
 
-    if (!summary || summary.length === 0) {
+    if (!data || Object.keys(data).length === 0) {
       return {
         totalVendas: 0,
         valorTotalVendas: 0,
@@ -270,21 +339,19 @@ class SaleService {
       };
     }
 
-    const data = summary[0];
+    const metodos = data.metodosDePagamento || {};
 
-    let metodos = {};
-    if (Array.isArray(data.metodosDePagamento)) {
-      data.metodosDePagamento.forEach((item) => {
-        metodos[item.k] = (metodos[item.k] || 0) + item.v;
-      });
-    } else {
-      metodos = data.metodosDePagamento;
-    }
+    const valorTotalVendas = data.valorTotalVendas
+      ? parseFloat(data.valorTotalVendas.toFixed(2))
+      : 0;
+    const totalDescontoAplicado = data.totalDescontoAplicado
+      ? parseFloat(data.totalDescontoAplicado.toFixed(2))
+      : 0;
 
     return {
-      totalVendas: data.totalVendas,
-      valorTotalVendas: parseFloat(data.valorTotalVendas.toFixed(2)),
-      totalDescontoAplicado: parseFloat(data.totalDescontoAplicado.toFixed(2)),
+      totalVendas: data.totalVendas || 0,
+      valorTotalVendas: valorTotalVendas,
+      totalDescontoAplicado: totalDescontoAplicado,
       metodosDePagamento: metodos,
       topClientes: data.topClientes || [],
     };
@@ -292,6 +359,49 @@ class SaleService {
 
   async getAllSales(fulfillment_status) {
     return await saleRepository.findAll(fulfillment_status);
+  }
+
+  async cancelSale(saleId) {
+    const sale = await saleRepository.findById(saleId);
+    if (!sale) {
+      throw new Error('Venda não encontrada.');
+    }
+
+    if (
+      sale.fulfillment_status === 'fulfilled' ||
+      sale.fulfillment_status === 'partial'
+    ) {
+      throw new Error(
+        'Não é possível cancelar uma venda que já foi parcial ou totalmente enviada.'
+      );
+    }
+
+    if (sale.fulfillment_status === 'canceled') {
+      return sale;
+    }
+
+    await accountsReceivableService.deleteBySaleId(saleId);
+    await purchaseBacklogRepository.deleteBySaleId(saleId);
+
+    const stockUpdatePromises = [];
+    for (const item of sale.items) {
+      if (item.fulfillment_status === 'fulfilled') {
+        const updateData = { $inc: { quantity: item.quantity } };
+        stockUpdatePromises.push(
+          productVariantRepository.updateVariant(
+            item.variant.toString(),
+            updateData
+          )
+        );
+      }
+    }
+
+    if (stockUpdatePromises.length > 0) {
+      await Promise.all(stockUpdatePromises);
+    }
+
+    const updatedSale = await saleRepository.cancelSale(saleId);
+    return updatedSale;
   }
 }
 

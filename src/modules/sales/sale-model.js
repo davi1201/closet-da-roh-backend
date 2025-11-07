@@ -31,10 +31,10 @@ const SaleItemSchema = new mongoose.Schema(
       default: 'fulfilled',
     },
   },
-  { _id: true } // Alterado de _id: false para permitir referenciamento
+  { _id: true }
 );
 
-const PaymentDetailSchema = new mongoose.Schema(
+const LegacyPaymentDetailSchema = new mongoose.Schema(
   {
     method: {
       type: String,
@@ -60,6 +60,28 @@ const PaymentDetailSchema = new mongoose.Schema(
   { _id: false }
 );
 
+const PaymentSchema = new mongoose.Schema(
+  {
+    method: {
+      type: String,
+      required: true,
+    },
+    amount: {
+      type: Number,
+      required: true,
+    },
+    installments: {
+      type: Number,
+      default: 1,
+    },
+    interest_rate_percentage: {
+      type: Number,
+      default: 0,
+    },
+  },
+  { _id: false }
+);
+
 const SaleSchema = new mongoose.Schema(
   {
     client: {
@@ -76,9 +98,17 @@ const SaleSchema = new mongoose.Schema(
       type: Number,
       required: true,
     },
+    discount_amount: {
+      type: Number,
+      default: 0,
+    },
     payment_details: {
-      type: PaymentDetailSchema,
-      required: true,
+      type: LegacyPaymentDetailSchema,
+      required: false,
+    },
+    payments: {
+      type: [PaymentSchema],
+      required: false,
     },
     total_amount: {
       type: Number,
@@ -93,12 +123,12 @@ const SaleSchema = new mongoose.Schema(
     fulfillment_status: {
       type: String,
       enum: [
-        'pending', // Aguardando processamento inicial
-        'awaiting_stock', // Pelo menos um item está 'pending_stock'
-        'ready_to_ship', // Todos os itens estão 'fulfilled' e pago
-        'partial', // Alguns itens enviados, outros não
-        'fulfilled', // Todos os itens enviados
-        'canceled', // Venda cancelada
+        'pending',
+        'awaiting_stock',
+        'ready_to_ship',
+        'partial',
+        'fulfilled',
+        'canceled',
       ],
       default: 'pending',
       required: true,
@@ -112,6 +142,18 @@ const SaleSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+SaleSchema.pre('validate', function (next) {
+  if (!this.payment_details && (!this.payments || this.payments.length === 0)) {
+    next(
+      new Error(
+        'A sale must have either "payment_details" (legacy) or "payments" (new).'
+      )
+    );
+  } else {
+    next();
+  }
+});
 
 const Sale = mongoose.model('Sale', SaleSchema);
 

@@ -15,6 +15,7 @@ import dashboardRoutes from '../modules/dashboard/dashboard-routes.js';
 import usersRoutes from '../modules/users/user-routes.js';
 import accountsReceivableRoutes from '../modules/account-receivable/account-receivable-routes.js';
 import desiredProductRoutes from '../modules/clients/desired-products/desired-product-routes.js';
+import geminiImageRoutes from '../modules/gemini-image/gemini-image-routes.js';
 
 const router = Router();
 
@@ -33,5 +34,6 @@ router.use('/admin/dashboard', dashboardRoutes);
 router.use('/users', usersRoutes);
 router.use('/accounts-receivable', accountsReceivableRoutes);
 router.use('/desired-products', desiredProductRoutes);
+router.use('/generation', geminiImageRoutes);
 
 export const v1Routes = router;

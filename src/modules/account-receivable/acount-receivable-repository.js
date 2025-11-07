@@ -34,8 +34,13 @@ async function updateById(id, data) {
     .lean();
 }
 
+async function deleteBySaleId(saleId) {
+  return AccountsReceivableModel.deleteMany({ saleId });
+}
+
 export const accountsReceivableRepository = {
   createMany,
   find,
   updateById,
+  deleteBySaleId,
 };

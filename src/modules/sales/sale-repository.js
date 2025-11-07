@@ -19,163 +19,155 @@ class SaleRepository {
     const query = fulfillment_status
       ? { fulfillment_status: fulfillment_status }
       : {};
-    return await Sale.find().sort({ createdAt: -1 }).populate('client').lean();
+    return await Sale.find({
+      fulfillment_status: { $ne: 'canceled' },
+    })
+      .sort({ createdAt: -1 })
+      .populate('client')
+      .lean();
   }
 
   async getSalesSummary() {
-    const salesSummary = await Sale.aggregate([
+    const summary = await Sale.aggregate([
       {
         $match: {
           fulfillment_status: { $ne: 'canceled' },
         },
       },
-      // ESTÁGIO 1: Agrupa o total geral e por método de pagamento (existente)
       {
-        $group: {
-          _id: null,
-          totalVendas: { $sum: 1 },
-
-          valorTotalVendas: {
-            $sum: {
-              $cond: {
-                if: {
-                  $or: [
-                    { $eq: ['$payment_details.method', 'card'] },
-                    { $eq: ['$payment_details.method', 'credit'] },
-                  ],
+        $addFields: {
+          normalized_discount: {
+            $cond: {
+              if: { $ifNull: ['$discount_amount', false] },
+              then: '$discount_amount',
+              else: { $ifNull: ['$payment_details.discount_amount', 0] },
+            },
+          },
+          normalized_payments: {
+            $cond: {
+              if: { $gt: [{ $size: { $ifNull: ['$payments', []] } }, 0] },
+              then: '$payments',
+              else: [
+                {
+                  method: '$payment_details.method',
+                  amount: '$payment_details.amount_paid',
                 },
-                then: { $ifNull: ['$subtotal_amount', 0] },
-                else: { $ifNull: ['$total_amount', 0] },
+              ],
+            },
+          },
+        },
+      },
+      {
+        $facet: {
+          globalTotals: [
+            {
+              $group: {
+                _id: null,
+                saleIds: { $addToSet: '$_id' },
+                valorTotalVendas: { $sum: '$total_amount' },
+                totalDescontoAplicado: { $sum: '$normalized_discount' },
               },
             },
-          },
-
-          totalDescontoAplicado: { $sum: '$payment_details.discount_amount' },
-
-          vendasPorMetodo: {
-            $push: {
-              metodo: '$payment_details.method',
-              valor: {
-                $cond: {
-                  if: {
-                    $or: [
-                      { $eq: ['$payment_details.method', 'card'] },
-                      { $eq: ['$payment_details.method', 'credit'] },
-                    ],
-                  },
-                  then: { $ifNull: ['$subtotal_amount', 0] },
-                  else: { $ifNull: ['$total_amount', 0] },
-                },
+            {
+              $project: {
+                _id: 0,
+                totalVendas: { $size: '$saleIds' },
+                valorTotalVendas: 1,
+                totalDescontoAplicado: 1,
               },
             },
-          },
-          // Novo array para cálculo de top clientes
-          vendasPorCliente: {
-            $push: {
-              clientId: '$client',
-              amount: {
-                $cond: {
-                  // Usando o valor líquido para a classificação do cliente
-                  if: {
-                    $or: [
-                      { $eq: ['$payment_details.method', 'card'] },
-                      { $eq: ['$payment_details.method', 'credit'] },
-                    ],
-                  },
-                  then: { $ifNull: ['$subtotal_amount', 0] },
-                  else: { $ifNull: ['$total_amount', 0] },
-                },
+          ],
+          paymentMethods: [
+            { $unwind: '$normalized_payments' },
+            {
+              $group: {
+                _id: '$normalized_payments.method',
+                totalAmount: { $sum: '$normalized_payments.amount' },
               },
             },
-          },
-        },
-      },
-      // ESTÁGIO 2: Desagrupa para calcular a soma de gastos por cliente
-      { $unwind: '$vendasPorCliente' },
-      { $match: { 'vendasPorCliente.clientId': { $ne: null } } }, // Remove vendas sem cliente
-      {
-        $group: {
-          _id: '$vendasPorCliente.clientId',
-          totalGasto: { $sum: '$vendasPorCliente.amount' },
-          // Preserva o resumo geral (totalVendas, valorTotalVendas, etc.)
-          totalVendas: { $first: '$totalVendas' },
-          valorTotalVendas: { $first: '$valorTotalVendas' },
-          totalDescontoAplicado: { $first: '$totalDescontoAplicado' },
-          vendasPorMetodo: { $first: '$vendasPorMetodo' },
-        },
-      },
-      // ESTÁGIO 3: Ordena e limita aos top 3
-      { $sort: { totalGasto: -1 } },
-      { $limit: 3 },
-      // ESTÁGIO 4: Popula o nome do cliente (Coleção 'clients' é a suposição)
-      {
-        $lookup: {
-          from: 'clients', // MUITO IMPORTANTE: Mude para o nome real da sua coleção de clientes
-          localField: '_id',
-          foreignField: '_id',
-          as: 'clientInfo',
-        },
-      },
-      { $unwind: '$clientInfo' },
-      // ESTÁGIO 5: Reagrupa tudo em um único documento de resumo
-      {
-        $group: {
-          _id: '$totalVendas', // Usa um campo do resumo geral para reagrupar
-          totalVendas: { $first: '$totalVendas' },
-          valorTotalVendas: { $first: '$valorTotalVendas' },
-          totalDescontoAplicado: { $first: '$totalDescontoAplicado' },
-          vendasPorMetodo: { $first: '$vendasPorMetodo' },
-          topClientes: {
-            // Cria o array de top clientes
-            $push: {
-              nome: '$clientInfo.name', // Supondo que o campo do nome seja 'name'
-              totalGasto: '$totalGasto',
+            {
+              $group: {
+                _id: null,
+                metodos: { $push: { k: '$_id', v: '$totalAmount' } },
+              },
             },
-          },
-        },
-      },
-      // ESTÁGIO 6: Desagrupa os métodos de pagamento (Existente)
-      { $unwind: '$vendasPorMetodo' },
-      {
-        $group: {
-          _id: '$_id',
-          totalVendas: { $first: '$totalVendas' },
-          valorTotalVendas: { $first: '$valorTotalVendas' },
-          totalDescontoAplicado: { $first: '$totalDescontoAplicado' },
-          topClientes: { $first: '$topClientes' }, // Preserva o novo campo
-
-          metodosDePagamento: {
-            $push: {
-              k: '$vendasPorMetodo.metodo',
-              v: '$vendasPorMetodo.valor',
+            {
+              $project: {
+                _id: 0,
+                metodosDePagamento: { $arrayToObject: '$metodos' },
+              },
             },
-          },
+          ],
+          topClientes: [
+            { $match: { client: { $ne: null } } },
+            {
+              $group: {
+                _id: '$client',
+                totalGasto: { $sum: '$total_amount' },
+              },
+            },
+            { $sort: { totalGasto: -1 } },
+            { $limit: 3 },
+            {
+              $lookup: {
+                from: 'clients',
+                localField: '_id',
+                foreignField: '_id',
+                as: 'clientInfo',
+              },
+            },
+            {
+              $unwind: {
+                path: '$clientInfo',
+                preserveNullAndEmptyArrays: true,
+              },
+            },
+            {
+              $project: {
+                _id: 0,
+                nome: { $ifNull: ['$clientInfo.name', 'Cliente Excluído'] },
+                totalGasto: '$totalGasto',
+              },
+            },
+          ],
         },
       },
-      // ESTÁGIO 7: Projeta e remodela o array vendasPorMetodo (Existente)
       {
         $project: {
-          _id: 0,
-          totalVendas: 1,
-          valorTotalVendas: 1,
-          totalDescontoAplicado: 1,
-          metodosDePagamento: {
-            $arrayToObject: [
+          globalData: { $arrayElemAt: ['$globalTotals', 0] },
+          methodData: { $arrayElemAt: ['$paymentMethods', 0] },
+          topClientesData: '$topClientes',
+        },
+      },
+      {
+        $replaceRoot: {
+          newRoot: {
+            $mergeObjects: [
               {
-                $map: {
-                  input: '$metodosDePagamento',
-                  as: 'item',
-                  in: ['$$item.k', '$$item.v'],
-                },
+                totalVendas: 0,
+                valorTotalVendas: 0,
+                totalDescontoAplicado: 0,
+                metodosDePagamento: {},
+                topClientes: [],
               },
+              '$globalData',
+              '$methodData',
+              { topClientes: '$topClientesData' },
             ],
           },
-          topClientes: 1, // Inclui o novo campo
         },
       },
     ]);
 
-    return salesSummary;
+    return summary[0];
+  }
+
+  async cancelSale(saleId) {
+    const result = await Sale.updateOne(
+      { _id: saleId },
+      { $set: { fulfillment_status: 'canceled' } }
+    );
+    return result.modifiedCount > 0;
   }
 }
 

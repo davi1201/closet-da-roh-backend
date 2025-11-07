@@ -2,31 +2,34 @@ import { addMonths } from 'date-fns';
 import { accountsReceivableRepository } from './acount-receivable-repository.js';
 
 class AccountsReceivableService {
-  async generateReceivablesForSale(sale) {
-    if (
-      sale.payment_details.method !== 'credit' ||
-      !sale.payment_details.installments
-    ) {
+  async generateReceivablesForSale(sale, due_date) {
+    // Procura pelo pagamento em crediário (fiado) dentro do array 'payments'
+    const creditPayment = sale.payments.find((p) => p.method === 'credit');
+
+    // Se não houver pagamento 'credit' ou não houver cliente, não faz nada.
+    if (!creditPayment || !sale.client) {
       return;
     }
 
-    const { total_amount, client: customer_id, _id: saleId } = sale;
-    const { installments } = sale.payment_details;
+    const { installments, amount } = creditPayment;
+    const { client: customerId, _id: saleId } = sale;
 
-    if (installments <= 0 || !customer_id) {
+    if (!installments || installments <= 0) {
       console.warn(
-        `Venda ${saleId} sem cliente ou parcelas, contas a receber não gerado.`
+        `Venda ${saleId} (crediário) sem número de parcelas, contas a receber não gerado.`
       );
       return;
     }
 
-    const totalInCents = Math.round(total_amount * 100);
+    // Usa o 'amount' do pagamento de crediário, não o 'total_amount' da venda
+    const totalInCents = Math.round(amount * 100);
     const baseInstallmentInCents = Math.floor(totalInCents / installments);
     const remainderInCents =
       totalInCents - baseInstallmentInCents * installments;
 
     const receivablesToCreate = [];
-    const saleDate = new Date(sale.createdAt || Date.now());
+    // Usa o due_date fornecido, ou a data da venda como fallback
+    const saleDate = new Date(due_date || sale.createdAt || Date.now());
 
     for (let i = 1; i <= installments; i++) {
       const installmentAmountInCents =
@@ -34,13 +37,14 @@ class AccountsReceivableService {
           ? baseInstallmentInCents + remainderInCents
           : baseInstallmentInCents;
 
-      const amount = installmentAmountInCents / 100;
-      const dueDate = addMonths(saleDate, i);
+      const installmentAmount = installmentAmountInCents / 100;
+      // A primeira parcela vence no 'saleDate', as seguintes 1 mês após
+      const dueDate = addMonths(saleDate, i - 1);
 
       receivablesToCreate.push({
-        customerId: customer_id,
+        customerId: customerId,
         saleId: saleId,
-        amount: amount,
+        amount: installmentAmount,
         dueDate: dueDate,
         status: 'PENDING',
         installmentNumber: i,
@@ -89,6 +93,14 @@ class AccountsReceivableService {
       throw new Error('Parcela não encontrada.');
     }
     return this._mapReceivableToFrontend(updated);
+  }
+
+  async deleteBySaleId(saleId) {
+    const deleted = await accountsReceivableRepository.deleteBySaleId(saleId);
+    if (!deleted) {
+      throw new Error('Parcelas não encontradas.');
+    }
+    return true;
   }
 }
 

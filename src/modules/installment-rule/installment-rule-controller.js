@@ -28,9 +28,11 @@ class InstallmentController {
   }
 
   async getPaymentConditions(req, res) {
-    const { purchaseValue } = req.query;
+    const { purchaseValue, repassInterest } = req.query;
 
     const value = parseFloat(purchaseValue);
+    const shouldRepassInterest =
+      repassInterest === 'true' || repassInterest === true;
 
     if (isNaN(value) || value <= 0) {
       return res.status(400).json({
@@ -40,7 +42,10 @@ class InstallmentController {
     }
 
     try {
-      const conditions = await InstallmentService.getPaymentConditions(value);
+      const conditions = await InstallmentService.getPaymentConditions(
+        value,
+        shouldRepassInterest
+      );
 
       return res.status(200).json(conditions);
     } catch (error) {
