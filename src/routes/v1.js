@@ -34,6 +34,5 @@ router.use('/admin/dashboard', dashboardRoutes);
 router.use('/users', usersRoutes);
 router.use('/accounts-receivable', accountsReceivableRoutes);
 router.use('/desired-products', desiredProductRoutes);
-router.use('/generation', geminiImageRoutes);
 
 export const v1Routes = router;
