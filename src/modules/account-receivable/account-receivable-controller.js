@@ -4,8 +4,8 @@ class AccountsReceivableController {
   async getAll(req, res, next) {
     try {
       const filters = req.query;
-      const receivables = await accountsReceivableService.getAll(filters);
-      res.status(200).json(receivables);
+      const data = await accountsReceivableService.getAll(filters);
+      res.status(200).json(data);
     } catch (error) {
       next(error);
     }

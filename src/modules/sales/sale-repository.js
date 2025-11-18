@@ -130,6 +130,60 @@ class SaleRepository {
               },
             },
           ],
+          supplierSales: [
+            { $unwind: '$items' },
+            {
+              $lookup: {
+                from: 'productvariants',
+                localField: 'items.variant',
+                foreignField: '_id',
+                as: 'variantInfo',
+              },
+            },
+            {
+              $unwind: {
+                path: '$variantInfo',
+                preserveNullAndEmptyArrays: true,
+              },
+            },
+            {
+              $lookup: {
+                from: 'products',
+                localField: 'variantInfo.product',
+                foreignField: '_id',
+                as: 'productInfo',
+              },
+            },
+            {
+              $unwind: {
+                path: '$productInfo',
+                preserveNullAndEmptyArrays: true,
+              },
+            },
+            {
+              $lookup: {
+                from: 'suppliers',
+                localField: 'productInfo.supplier_id',
+                foreignField: '_id',
+                as: 'supplierInfo',
+              },
+            },
+            {
+              $unwind: {
+                path: '$supplierInfo',
+                preserveNullAndEmptyArrays: true,
+              },
+            },
+            {
+              $group: {
+                _id: '$supplierInfo._id',
+                name: { $first: '$supplierInfo.name' },
+                totalSold: { $sum: '$items.subtotal' },
+              },
+            },
+            { $match: { _id: { $ne: null } } },
+            { $sort: { totalSold: -1 } },
+          ],
         },
       },
       {
@@ -137,6 +191,7 @@ class SaleRepository {
           globalData: { $arrayElemAt: ['$globalTotals', 0] },
           methodData: { $arrayElemAt: ['$paymentMethods', 0] },
           topClientesData: '$topClientes',
+          supplierSalesData: '$supplierSales',
         },
       },
       {
@@ -149,10 +204,12 @@ class SaleRepository {
                 totalDescontoAplicado: 0,
                 metodosDePagamento: {},
                 topClientes: [],
+                supplierSales: [], // <-- CORRIGIDO
               },
               '$globalData',
               '$methodData',
               { topClientes: '$topClientesData' },
+              { supplierSales: '$supplierSalesData' }, // <-- CORRIGIDO
             ],
           },
         },

@@ -145,6 +145,7 @@ class SaleService {
         : clientDiscountPercentage;
     const clientDiscountAmount = (subtotal * safeClientPercentage) / 100;
 
+    // Removemos o 'methodDiscountAmount' para que só o desconto manual seja aplicado
     let methodDiscountAmount = 0;
     const isSplit = paymentIntents.length > 1;
     const repassInterest = !isSplit;
@@ -159,18 +160,19 @@ class SaleService {
           `Forma de pagamento '${paymentMethodKey}' não é válida ou está inativa.`
         );
       }
-      methodDiscountAmount =
-        (subtotal * (paymentMethod.discount_percentage || 0)) / 100;
+      // Cálculo do desconto automático removido
     }
 
-    let totalDiscountApplied = clientDiscountAmount + methodDiscountAmount;
+    let totalDiscountApplied = clientDiscountAmount; // Apenas o desconto do cliente
     if (totalDiscountApplied > subtotal) {
       totalDiscountApplied = subtotal;
     }
+
+    // Este é o valor líquido (o "caixa" da loja)
     const netSaleAmount = subtotal - totalDiscountApplied;
 
     const processedPayments = [];
-    let totalFinalAmount = 0;
+    let totalPaidByCustomer = 0; // O que o cliente realmente paga
 
     if (isSplit) {
       const entryPayment = paymentIntents.find((p) => p.amount);
@@ -196,14 +198,14 @@ class SaleService {
         installments: 1,
         interest_rate_percentage: 0,
       });
-      totalFinalAmount += entryAmount;
+      totalPaidByCustomer += entryAmount;
 
       const installmentResult = this._calculateInstallmentInterest(
         settings,
         installmentPayment.method,
         installmentPayment.installments,
         remainderAmount,
-        repassInterest
+        repassInterest // Passa 'false'
       );
 
       processedPayments.push({
@@ -212,14 +214,15 @@ class SaleService {
         installments: installmentPayment.installments,
         interest_rate_percentage: installmentResult.interestRate,
       });
-      totalFinalAmount += installmentResult.finalAmount;
+      totalPaidByCustomer += installmentResult.finalAmount;
     } else {
       const payment = paymentIntents[0];
       const installmentResult = this._calculateInstallmentInterest(
         settings,
         payment.method,
         payment.installments,
-        netSaleAmount
+        netSaleAmount,
+        repassInterest // Passa 'true'
       );
 
       processedPayments.push({
@@ -228,12 +231,12 @@ class SaleService {
         installments: payment.installments,
         interest_rate_percentage: installmentResult.interestRate,
       });
-      totalFinalAmount = installmentResult.finalAmount;
+      totalPaidByCustomer = installmentResult.finalAmount;
     }
 
     return {
       processedPayments: processedPayments,
-      total_amount: parseFloat(totalFinalAmount.toFixed(2)),
+      total_amount: parseFloat(netSaleAmount.toFixed(2)), // Total da VENDA (líquido)
       discount_amount: parseFloat(totalDiscountApplied.toFixed(2)),
     };
   }
@@ -279,7 +282,7 @@ class SaleService {
     );
 
     return {
-      finalAmount: calculatedValues.totalValue,
+      finalAmount: calculatedValues.totalValue, // Valor que o cliente paga
       interestAmount: calculatedValues.interestAmount,
       interestRate: originalInterestRate,
     };
@@ -336,6 +339,7 @@ class SaleService {
         totalDescontoAplicado: 0,
         metodosDePagamento: {},
         topClientes: [],
+        supplierSales: [], // <-- CORREÇÃO: Adicionado valor padrão
       };
     }
 
@@ -354,6 +358,7 @@ class SaleService {
       totalDescontoAplicado: totalDescontoAplicado,
       metodosDePagamento: metodos,
       topClientes: data.topClientes || [],
+      supplierSales: data.supplierSales || [], // <-- CORREÇÃO: Adicionado repasse
     };
   }
 

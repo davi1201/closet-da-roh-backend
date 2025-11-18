@@ -3,10 +3,8 @@ import { accountsReceivableRepository } from './acount-receivable-repository.js'
 
 class AccountsReceivableService {
   async generateReceivablesForSale(sale, due_date) {
-    // Procura pelo pagamento em crediário (fiado) dentro do array 'payments'
     const creditPayment = sale.payments.find((p) => p.method === 'credit');
 
-    // Se não houver pagamento 'credit' ou não houver cliente, não faz nada.
     if (!creditPayment || !sale.client) {
       return;
     }
@@ -21,14 +19,13 @@ class AccountsReceivableService {
       return;
     }
 
-    // Usa o 'amount' do pagamento de crediário, não o 'total_amount' da venda
     const totalInCents = Math.round(amount * 100);
     const baseInstallmentInCents = Math.floor(totalInCents / installments);
     const remainderInCents =
       totalInCents - baseInstallmentInCents * installments;
 
     const receivablesToCreate = [];
-    // Usa o due_date fornecido, ou a data da venda como fallback
+
     const saleDate = new Date(due_date || sale.createdAt || Date.now());
 
     for (let i = 1; i <= installments; i++) {
@@ -38,7 +35,7 @@ class AccountsReceivableService {
           : baseInstallmentInCents;
 
       const installmentAmount = installmentAmountInCents / 100;
-      // A primeira parcela vence no 'saleDate', as seguintes 1 mês após
+
       const dueDate = addMonths(saleDate, i - 1);
 
       receivablesToCreate.push({
@@ -60,6 +57,8 @@ class AccountsReceivableService {
     }
   }
 
+  // Este map é usado apenas pelo `updateStatus`,
+  // pois o `updateById` ainda usa .populate()
   _mapReceivableToFrontend(doc) {
     if (!doc) return null;
     return {
@@ -69,17 +68,19 @@ class AccountsReceivableService {
     };
   }
 
+  /**
+   * Busca os dados centralizados do repositório.
+   * @param {object} filters
+   * @returns {Promise<{accountsToReceive: Array<object>, totalByMonth: number}>}
+   */
   async getAll(filters) {
-    const query = {};
-    if (filters.status) {
-      query.status = filters.status;
-    }
-    if (filters.customerId) {
-      query.customerId = filters.customerId;
-    }
+    const { receivables, total } =
+      await accountsReceivableRepository.getDataByMonth(filters);
 
-    const results = await accountsReceivableRepository.find(query);
-    return results.map(this._mapReceivableToFrontend);
+    return {
+      accountsToReceive: receivables,
+      totalByMonth: total,
+    };
   }
 
   async updateStatus(id, status) {
@@ -92,6 +93,8 @@ class AccountsReceivableService {
     if (!updated) {
       throw new Error('Parcela não encontrada.');
     }
+    // O map ainda é necessário aqui, pois `updateById` retorna
+    // o documento populado de forma diferente do aggregate.
     return this._mapReceivableToFrontend(updated);
   }
 
